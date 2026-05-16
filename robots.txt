@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+# Block admin/private paths (add these as you build them)
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /api/
+
+# Sitemaps
+Sitemap: https://akiyafind.com/sitemap.xml
