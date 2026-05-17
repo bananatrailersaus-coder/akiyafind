@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 import psycopg2
 import os
@@ -41,6 +40,7 @@ def api_listings():
 
 @app.get("/", response_class=HTMLResponse)
 def homepage():
-    with open("index.html") as f:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(base_dir, "index.html")) as f:
         return f.read()
 
