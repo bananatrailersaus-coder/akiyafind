@@ -44,4 +44,3 @@ def homepage():
     with open("index.html") as f:
         return f.read()
 
-app.mount("/", StaticFiles(directory="."), name="static")
