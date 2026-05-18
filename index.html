@@ -991,9 +991,9 @@
     <div class="eyebrow">Japan Akiya Search — 2026</div>
     <h1>Find your <em>affordable</em> home in Japan</h1>
     <p class="hero-desc">We aggregate thousands of vacant house listings directly from Japan's municipal akiya banks and real estate agencies — translated into English, searchable from anywhere in the world.</p>
-    <div class="hero-search">
-      <input type="text" placeholder="Search prefecture, city, or keyword…">
-      <button>Search →</button>
+    <form class="hero-search" action="/search" method="get">
+      <input type="text" name="q" placeholder="Search prefecture, city, or keyword…">
+      <button type="submit">Search →</button></form>
     </div>
     <div class="hero-stats">
       <div class="stat-item">
