@@ -339,13 +339,10 @@
     font-weight: 300;
   }
 
-  .hero-search {
-    background: white;
-    border-radius: 8px;
-    padding: 6px;
-    display: flex;
-    box-shadow: 0 4px 24px var(--shadow), 0 0 0 1px rgba(200,146,42,0.15);
-    max-width: 480px;
+  .hero-search {<form class="hero-search" action="/search" method="get">
+      <input type="text" name="q" placeholder="Search prefecture, city, or keyword…">
+      <button type="submit">Search →</button>
+    </form>
   }
   .hero-search input {
     flex: 1;
