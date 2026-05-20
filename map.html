@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Map Search — AkiyaFind | Find Vacant Homes in Japan</title>
+<meta name="description" content="Browse vacant houses in Japan on an interactive map. Search akiya listings by location, price and size across all 47 prefectures.">
+<link rel="canonical" href="https://akiyafind.com/map">
+<meta name="theme-color" content="#C94A2A">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --ink: #1a1208;
+    --rice: #f7f3ec;
+    --cream: #ede8de;
+    --vermillion: #c94a2a;
+    --gold: #c8922a;
+    --moss: #3d5a3e;
+    --mist: #a8b8b0;
+    --shadow: rgba(26,18,8,0.12);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; font-family: 'DM Sans', sans-serif; background: var(--rice); color: var(--ink); overflow: hidden; }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 32px;
+    background: rgba(247,243,236,0.97);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(200,146,42,0.2);
+    height: 56px;
+  }
+  .logo { font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 1.3rem; color: var(--ink); text-decoration: none; }
+  .logo-jp { font-size: 0.58rem; color: var(--mist); letter-spacing: 2px; display: block; margin-top: -3px; text-transform: uppercase; }
+  nav ul { list-style: none; display: flex; gap: 24px; align-items: center; }
+  nav ul a { text-decoration: none; color: var(--ink); font-size: 0.85rem; font-weight: 500; opacity: 0.7; }
+  nav ul a:hover, nav ul a.active { opacity: 1; }
+  .nav-cta { background: var(--vermillion); color: white !important; opacity: 1 !important; padding: 8px 18px; border-radius: 4px; font-size: 0.82rem !important; }
+
+  /* LAYOUT */
+  .app {
+    display: flex;
+    height: calc(100vh - 56px);
+    margin-top: 56px;
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 380px;
+    min-width: 380px;
+    background: var(--rice);
+    border-right: 1px solid rgba(200,146,42,0.15);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 100;
+  }
+
+  .sidebar-search {
+    padding: 16px;
+    border-bottom: 1px solid rgba(200,146,42,0.12);
+    background: var(--ink);
+  }
+  .sidebar-search-bar {
+    display: flex;
+    background: white;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .sidebar-search-bar input {
+    flex: 1; border: none; outline: none;
+    padding: 10px 14px;
+    font-family: 'DM Sans', sans-serif; font-size: 0.85rem; color: var(--ink);
+  }
+  .sidebar-search-bar button {
+    background: var(--vermillion); color: white; border: none; cursor: pointer;
+    padding: 10px 16px; font-size: 0.82rem; font-weight: 500;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .sidebar-search-bar button:hover { background: #a83a1c; }
+
+  .filter-row { display: flex; gap: 8px; }
+  .filter-sel {
+    flex: 1; border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.08); color: rgba(247,243,236,0.8);
+    padding: 7px 10px; border-radius: 4px;
+    font-family: 'DM Sans', sans-serif; font-size: 0.75rem;
+    cursor: pointer; outline: none;
+  }
+  .filter-sel option { background: var(--ink); color: var(--rice); }
+
+  .sidebar-meta {
+    padding: 10px 16px;
+    background: var(--cream);
+    border-bottom: 1px solid rgba(200,146,42,0.12);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .sidebar-count { font-size: 0.78rem; color: var(--mist); }
+  .sidebar-count strong { color: var(--ink); }
+  .sort-sel {
+    border: 1px solid rgba(200,146,42,0.2); background: white;
+    color: var(--ink); padding: 5px 10px; border-radius: 4px;
+    font-family: 'DM Sans', sans-serif; font-size: 0.75rem; cursor: pointer; outline: none;
+  }
+
+  /* LISTING LIST */
+  .listing-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+  }
+  .listing-list::-webkit-scrollbar { width: 4px; }
+  .listing-list::-webkit-scrollbar-track { background: var(--cream); }
+  .listing-list::-webkit-scrollbar-thumb { background: var(--mist); border-radius: 2px; }
+
+  .list-item {
+    display: flex; gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(200,146,42,0.08);
+    cursor: pointer;
+    transition: background 0.15s;
+    text-decoration: none;
+    color: var(--ink);
+  }
+  .list-item:hover, .list-item.active {
+    background: rgba(201,74,42,0.05);
+    border-left: 3px solid var(--vermillion);
+    padding-left: 13px;
+  }
+  .list-item-img {
+    width: 72px; height: 54px; border-radius: 4px;
+    object-fit: cover; flex-shrink: 0;
+    filter: sepia(10%) saturate(80%);
+    background: var(--cream);
+  }
+  .list-item-body { flex: 1; min-width: 0; }
+  .list-item-pref {
+    font-size: 0.63rem; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--mist); margin-bottom: 2px;
+  }
+  .list-item-title {
+    font-family: 'Shippori Mincho', serif;
+    font-size: 0.85rem; font-weight: 600; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: 4px;
+  }
+  .list-item-price {
+    font-family: 'Shippori Mincho', serif;
+    font-size: 0.95rem; font-weight: 800; color: var(--vermillion);
+  }
+  .list-item-price.free { color: var(--moss); }
+  .list-item-meta { font-size: 0.68rem; color: var(--mist); margin-top: 2px; }
+
+  .list-empty {
+    padding: 48px 24px; text-align: center;
+  }
+  .list-empty h3 { font-family: 'Shippori Mincho', serif; font-size: 1.1rem; margin-bottom: 8px; margin-top: 12px; }
+  .list-empty p { font-size: 0.82rem; color: var(--mist); }
+
+  .list-loading {
+    padding: 48px 24px; text-align: center;
+  }
+  .spinner { width: 28px; height: 28px; border: 2px solid var(--cream); border-top-color: var(--vermillion); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* MAP */
+  .map-wrap { flex: 1; position: relative; }
+  #map { width: 100%; height: 100%; }
+
+  /* MAP OVERLAY CONTROLS */
+  .map-controls {
+    position: absolute; top: 12px; right: 12px; z-index: 500;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .map-ctrl-btn {
+    background: white; border: none; cursor: pointer;
+    width: 36px; height: 36px; border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; transition: background 0.2s;
+  }
+  .map-ctrl-btn:hover { background: var(--cream); }
+
+  /* POPUP */
+  .leaflet-popup-content-wrapper {
+    border-radius: 8px !important;
+    box-shadow: 0 8px 32px rgba(26,18,8,0.2) !important;
+    padding: 0 !important;
+    overflow: hidden;
+  }
+  .leaflet-popup-content { margin: 0 !important; width: 260px !important; }
+  .leaflet-popup-tip-container { display: none; }
+
+  .popup-card { font-family: 'DM Sans', sans-serif; }
+  .popup-img { width: 100%; height: 140px; object-fit: cover; display: block; filter: sepia(10%) saturate(80%); }
+  .popup-body { padding: 12px 14px 14px; }
+  .popup-pref { font-size: 0.63rem; letter-spacing: 1.5px; text-transform: uppercase; color: var(--mist); margin-bottom: 3px; }
+  .popup-title { font-family: 'Shippori Mincho', serif; font-size: 0.9rem; font-weight: 600; margin-bottom: 6px; line-height: 1.3; }
+  .popup-price { font-family: 'Shippori Mincho', serif; font-size: 1.1rem; font-weight: 800; color: var(--vermillion); }
+  .popup-price.free { color: var(--moss); }
+  .popup-jpy { font-size: 0.7rem; color: var(--mist); margin-bottom: 8px; }
+  .popup-tags { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px; }
+  .popup-tag { background: var(--cream); color: rgba(26,18,8,0.6); font-size: 0.65rem; padding: 2px 6px; border-radius: 3px; }
+  .popup-btn {
+    display: block; width: 100%; padding: 9px;
+    background: var(--vermillion); color: white; border: none; border-radius: 4px;
+    font-family: 'DM Sans', sans-serif; font-size: 0.78rem; font-weight: 500;
+    cursor: pointer; text-align: center; text-decoration: none;
+    transition: background 0.2s;
+  }
+  .popup-btn:hover { background: #a83a1c; }
+
+  /* PREFECTURE CLUSTER MARKER */
+  .pref-marker {
+    background: var(--vermillion);
+    color: white;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 700;
+    border: 2px solid white;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+
+  /* VIEW TOGGLE */
+  .view-toggle {
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    z-index: 500;
+    background: white; border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    display: flex; overflow: hidden;
+  }
+  .view-btn {
+    padding: 10px 20px; border: none; cursor: pointer;
+    font-family: 'DM Sans', sans-serif; font-size: 0.8rem; font-weight: 500;
+    background: white; color: var(--ink); transition: all 0.2s;
+  }
+  .view-btn.active { background: var(--vermillion); color: white; }
+  .view-btn:hover:not(.active) { background: var(--cream); }
+
+  /* MOBILE */
+  @media (max-width: 768px) {
+    .sidebar { display: none; }
+    nav ul { display: none; }
+    nav { padding: 12px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="logo">AkiyaFind<sup style="font-size:0.5em;color:var(--gold)">空き家</sup>
+    <small class="logo-jp">Vacant Homes · Japan</small>
+  </a>
+  <ul>
+    <li><a href="/search">List</a></li>
+    <li><a href="/map" class="active">Map</a></li>
+    <li><a href="/#pricing">Pricing</a></li>
+    <li><a href="#" class="nav-cta">Start Free</a></li>
+  </ul>
+</nav>
+
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-search">
+      <div class="sidebar-search-bar">
+        <input type="text" id="search-input" placeholder="Search prefecture or city…" autocomplete="off">
+        <button id="search-btn">Search</button>
+      </div>
+      <div class="filter-row">
+        <select class="filter-sel" id="filter-prefecture">
+          <option value="">All Prefectures</option>
+          <option>Hokkaido</option><option>Aomori</option><option>Iwate</option><option>Miyagi</option><option>Akita</option><option>Yamagata</option><option>Fukushima</option><option>Ibaraki</option><option>Tochigi</option><option>Gunma</option><option>Saitama</option><option>Chiba</option><option>Tokyo</option><option>Kanagawa</option><option>Niigata</option><option>Toyama</option><option>Ishikawa</option><option>Fukui</option><option>Yamanashi</option><option>Nagano</option><option>Gifu</option><option>Shizuoka</option><option>Aichi</option><option>Mie</option><option>Shiga</option><option>Kyoto</option><option>Osaka</option><option>Hyogo</option><option>Nara</option><option>Wakayama</option><option>Tottori</option><option>Shimane</option><option>Okayama</option><option>Hiroshima</option><option>Yamaguchi</option><option>Tokushima</option><option>Kagawa</option><option>Ehime</option><option>Kochi</option><option>Fukuoka</option><option>Saga</option><option>Nagasaki</option><option>Kumamoto</option><option>Oita</option><option>Miyazaki</option><option>Kagoshima</option><option>Okinawa</option>
+        </select>
+        <select class="filter-sel" id="filter-max-price">
+          <option value="0">Any price</option>
+          <option value="1000000">Under ¥1M</option>
+          <option value="5000000">Under ¥5M</option>
+          <option value="10000000">Under ¥10M</option>
+          <option value="30000000">Under ¥30M</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sidebar-meta">
+      <div class="sidebar-count" id="sidebar-count">Loading…</div>
+      <select class="sort-sel" id="sort-sel">
+        <option value="newest">Newest</option>
+        <option value="price-asc">Cheapest</option>
+        <option value="price-desc">Most expensive</option>
+        <option value="size-desc">Largest</option>
+      </select>
+    </div>
+
+    <div class="listing-list" id="listing-list">
+      <div class="list-loading"><div class="spinner"></div><p style="color:var(--mist);font-size:0.82rem">Loading listings…</p></div>
+    </div>
+  </div>
+
+  <div class="map-wrap">
+    <div id="map"></div>
+    <div class="view-toggle">
+      <button class="view-btn" onclick="window.location='/search'">☰ List</button>
+      <button class="view-btn active">🗺 Map</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Prefecture coordinates (fallback when no lat/lng on listing)
+const PREF_COORDS = {
+  'Hokkaido': [43.064, 141.347], 'Aomori': [40.824, 140.740], 'Iwate': [39.704, 141.153],
+  'Miyagi': [38.269, 140.872], 'Akita': [39.720, 140.103], 'Yamagata': [38.240, 140.364],
+  'Fukushima': [37.750, 140.468], 'Ibaraki': [36.342, 140.447], 'Tochigi': [36.566, 139.883],
+  'Gunma': [36.391, 139.061], 'Saitama': [35.857, 139.649], 'Chiba': [35.605, 140.123],
+  'Tokyo': [35.690, 139.692], 'Kanagawa': [35.448, 139.642], 'Niigata': [37.902, 139.023],
+  'Toyama': [36.695, 137.211], 'Ishikawa': [36.594, 136.626], 'Fukui': [36.065, 136.222],
+  'Yamanashi': [35.664, 138.569], 'Nagano': [36.651, 138.181], 'Gifu': [35.391, 136.722],
+  'Shizuoka': [34.977, 138.383], 'Aichi': [35.180, 136.907], 'Mie': [34.730, 136.509],
+  'Shiga': [35.004, 135.869], 'Kyoto': [35.021, 135.756], 'Osaka': [34.686, 135.520],
+  'Hyogo': [34.691, 135.183], 'Nara': [34.685, 135.833], 'Wakayama': [34.226, 135.168],
+  'Tottori': [35.504, 134.238], 'Shimane': [35.472, 133.051], 'Okayama': [34.662, 133.934],
+  'Hiroshima': [34.396, 132.460], 'Yamaguchi': [34.186, 131.471], 'Tokushima': [34.066, 134.560],
+  'Kagawa': [34.340, 134.043], 'Ehime': [33.842, 132.766], 'Kochi': [33.560, 133.531],
+  'Fukuoka': [33.607, 130.418], 'Saga': [33.249, 130.299], 'Nagasaki': [32.745, 129.874],
+  'Kumamoto': [32.790, 130.742], 'Oita': [33.238, 131.613], 'Miyazaki': [31.911, 131.424],
+  'Kagoshima': [31.560, 130.558], 'Okinawa': [26.212, 127.681],
+};
+
+const IMAGES = [
+  'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=400&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=400&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1490806843957-31f4c9a91c65?w=400&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1480796927426-f609979314bd?w=400&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1542051841857-5f90071e7989?w=400&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1431274172761-fca41d930114?w=400&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1524413840807-0c3cb6fa808d?w=400&auto=format&fit=crop',
+];
+
+// Init map centered on Japan
+const map = L.map('map', { zoomControl: false }).setView([36.5, 137.0], 5);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO',
+  subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+let allListings = [];
+let markers = [];
+let activeMarker = null;
+
+function formatAUD(aud, is_free) {
+  if (is_free) return 'FREE';
+  return 'AUD $' + Math.round(aud).toLocaleString();
+}
+
+function formatJPY(jpy, is_free) {
+  if (is_free) return '¥0 — Free transfer';
+  return '¥' + jpy.toLocaleString() + ' JPY';
+}
+
+function getCoords(listing, index) {
+  // Use geocoded coords if available
+  if (listing.lat && listing.lng) {
+    // Add small random offset so pins don't stack exactly
+    return [
+      listing.lat + (Math.random() - 0.5) * 0.02,
+      listing.lng + (Math.random() - 0.5) * 0.02
+    ];
+  }
+  // Fall back to prefecture coords with offset
+  const base = PREF_COORDS[listing.prefecture];
+  if (base) {
+    return [
+      base[0] + (Math.random() - 0.5) * 0.5,
+      base[1] + (Math.random() - 0.5) * 0.5
+    ];
+  }
+  return [36.5, 137.0];
+}
+
+function makeMarkerIcon(isFree) {
+  const color = isFree ? '#3d5a3e' : '#c94a2a';
+  return L.divIcon({
+    html: '<div style="width:12px;height:12px;border-radius:50%;background:' + color + ';border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.3)"></div>',
+    className: '',
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+    popupAnchor: [0, -8]
+  });
+}
+
+function makePopup(listing, index) {
+  const img = IMAGES[index % IMAGES.length];
+  const isFree = listing.price_jpy === 0;
+  const aud = formatAUD(listing.price_aud, isFree);
+  const jpy = formatJPY(listing.price_jpy, isFree);
+  const title = (listing.title || 'Vacant house — ' + listing.prefecture).replace('不明', '').trim();
+  const size = listing.size_m2 > 0 ? listing.size_m2 + ' m²' : '';
+  const href = listing.source_url || '#';
+
+  return '<div class="popup-card">' +
+    '<img class="popup-img" src="' + img + '" alt="Property">' +
+    '<div class="popup-body">' +
+      '<div class="popup-pref">' + listing.prefecture + '</div>' +
+      '<div class="popup-title">' + title + '</div>' +
+      '<div class="popup-price ' + (isFree ? 'free' : '') + '">' + aud + '</div>' +
+      '<div class="popup-jpy">' + jpy + '</div>' +
+      '<div class="popup-tags">' +
+        (size ? '<span class="popup-tag">' + size + '</span>' : '') +
+        '<span class="popup-tag">' + listing.prefecture + '</span>' +
+      '</div>' +
+      '<a class="popup-btn" href="' + href + '" target="_blank" rel="noopener">View listing →</a>' +
+    '</div></div>';
+}
+
+function renderMarkers(listings) {
+  // Remove old markers
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+
+  listings.forEach((listing, i) => {
+    const coords = getCoords(listing, i);
+    const marker = L.marker(coords, { icon: makeMarkerIcon(listing.price_jpy === 0) });
+    marker.bindPopup(makePopup(listing, i), { maxWidth: 260, minWidth: 260 });
+    marker.on('click', () => highlightListItem(i));
+    marker.addTo(map);
+    markers.push(marker);
+  });
+}
+
+function renderList(listings) {
+  const list = document.getElementById('listing-list');
+  const count = document.getElementById('sidebar-count');
+
+  if (listings.length === 0) {
+    list.innerHTML = '<div class="list-empty"><div style="font-size:2.5rem">🏚</div><h3>No listings found</h3><p>Try adjusting your search or filters.</p></div>';
+    count.innerHTML = '<strong>0</strong> listings';
+    return;
+  }
+
+  count.innerHTML = '<strong>' + listings.length + '</strong> listing' + (listings.length !== 1 ? 's' : '');
+
+  list.innerHTML = listings.map((l, i) => {
+    const img = IMAGES[i % IMAGES.length];
+    const isFree = l.price_jpy === 0;
+    const aud = formatAUD(l.price_aud, isFree);
+    const title = (l.title || 'Vacant house — ' + l.prefecture).replace('不明', '').trim();
+    const size = l.size_m2 > 0 ? l.size_m2 + ' m²' : '';
+    return '<div class="list-item" data-index="' + i + '" onclick="focusListing(' + i + ')">' +
+      '<img class="list-item-img" src="' + img + '" alt="Property" loading="lazy">' +
+      '<div class="list-item-body">' +
+        '<div class="list-item-pref">' + l.prefecture + '</div>' +
+        '<div class="list-item-title">' + title + '</div>' +
+        '<div class="list-item-price ' + (isFree ? 'free' : '') + '">' + aud + '</div>' +
+        '<div class="list-item-meta">' + (size ? size + ' · ' : '') + l.prefecture + '</div>' +
+      '</div></div>';
+  }).join('');
+}
+
+function focusListing(index) {
+  if (!markers[index]) return;
+  const marker = markers[index];
+  map.setView(marker.getLatLng(), 13, { animate: true });
+  marker.openPopup();
+  highlightListItem(index);
+}
+
+function highlightListItem(index) {
+  document.querySelectorAll('.list-item').forEach(el => el.classList.remove('active'));
+  const el = document.querySelector('.list-item[data-index="' + index + '"]');
+  if (el) {
+    el.classList.add('active');
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+function sortListings(listings, by) {
+  const arr = [...listings];
+  if (by === 'price-asc') arr.sort((a, b) => a.price_jpy - b.price_jpy);
+  else if (by === 'price-desc') arr.sort((a, b) => b.price_jpy - a.price_jpy);
+  else if (by === 'size-desc') arr.sort((a, b) => b.size_m2 - a.size_m2);
+  return arr;
+}
+
+async function loadListings(params) {
+  document.getElementById('listing-list').innerHTML = '<div class="list-loading"><div class="spinner"></div><p style="color:var(--mist);font-size:0.82rem">Loading listings…</p></div>';
+  document.getElementById('sidebar-count').textContent = 'Loading…';
+
+  const url = new URL('/api/search', window.location.origin);
+  if (params.q) url.searchParams.set('q', params.q);
+  if (params.prefecture) url.searchParams.set('prefecture', params.prefecture);
+  if (params.max_price) url.searchParams.set('max_price', params.max_price);
+
+  try {
+    const res = await fetch(url.toString());
+    allListings = await res.json();
+    const sorted = sortListings(allListings, document.getElementById('sort-sel').value);
+    renderList(sorted);
+    renderMarkers(sorted);
+  } catch(e) {
+    document.getElementById('listing-list').innerHTML = '<div class="list-empty"><div style="font-size:2rem">⚠️</div><h3>Error loading</h3><p>Please try again.</p></div>';
+  }
+}
+
+function getParams() {
+  return {
+    q: document.getElementById('search-input').value.trim(),
+    prefecture: document.getElementById('filter-prefecture').value,
+    max_price: document.getElementById('filter-max-price').value,
+  };
+}
+
+document.getElementById('search-btn').addEventListener('click', () => loadListings(getParams()));
+document.getElementById('search-input').addEventListener('keydown', e => { if (e.key === 'Enter') loadListings(getParams()); });
+document.getElementById('filter-prefecture').addEventListener('change', () => {
+  const pref = document.getElementById('filter-prefecture').value;
+  if (pref && PREF_COORDS[pref]) {
+    map.setView(PREF_COORDS[pref], 8, { animate: true });
+  }
+  loadListings(getParams());
+});
+document.getElementById('filter-max-price').addEventListener('change', () => loadListings(getParams()));
+document.getElementById('sort-sel').addEventListener('change', () => {
+  const sorted = sortListings(allListings, document.getElementById('sort-sel').value);
+  renderList(sorted);
+  renderMarkers(sorted);
+});
+
+// Initial load
+loadListings({ q: '', prefecture: '', max_price: 0 });
+</script>
+</body>
+</html>
