@@ -101,3 +101,9 @@ def homepage():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     with open(os.path.join(base_dir, "index.html")) as f:
         return f.read()
+
+@app.get("/map", response_class=HTMLResponse)
+def map_page():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(base_dir, "map.html")) as f:
+        return f.read()
