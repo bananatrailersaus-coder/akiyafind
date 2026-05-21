@@ -1,0 +1,58 @@
+name: AkiyaFind Crawler
+
+on:
+  # Run manually from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      prefectures:
+        description: 'Prefecture ken_cd numbers to crawl (space-separated, blank = all 47)'
+        required: false
+        default: ''
+      start_from:
+        description: 'Resume from prefecture index (0-based, 0 = start from beginning)'
+        required: false
+        default: '0'
+
+  # Scheduled daily crawl — runs at 2am Tokyo time (17:00 UTC)
+  # Uncomment when ready:
+  # schedule:
+  #   - cron: '0 17 * * *'
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180   # 3 hour cap
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          pip install selenium psycopg2-binary requests beautifulsoup4
+
+      - name: Set up Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Run crawler
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.prefectures }}" ]; then
+            ARGS="--prefectures ${{ github.event.inputs.prefectures }}"
+          fi
+          if [ "${{ github.event.inputs.start_from }}" != "0" ]; then
+            ARGS="$ARGS --start-from ${{ github.event.inputs.start_from }}"
+          fi
+          python3 crawler_selenium.py $ARGS
+
+      - name: Report results
+        if: always()
+        run: |
+          echo "Crawl job finished at $(date)"
