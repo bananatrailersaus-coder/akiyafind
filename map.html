@@ -12,6 +12,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css">
+<script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+
 <style>
   :root {
     --ink: #1a1208;
@@ -358,6 +362,9 @@ L.control.zoom({ position: 'topright' }).addTo(map);
 
 let allListings = [];
 let markers = [];
+let markerCluster = L.markerClusterGroup({ maxClusterRadius: 40, spiderfyOnMaxZoom: true, showCoverageOnHover: false });
+map.addLayer(markerCluster);
+
 let activeMarker = null;
 
 function formatAUD(aud, is_free) {
@@ -427,15 +434,15 @@ function makePopup(listing, index) {
 
 function renderMarkers(listings) {
   // Remove old markers
-  markers.forEach(m => map.removeLayer(m));
-  markers = [];
+  markerCluster.clearLayers();
+markers = [];
 
   listings.forEach((listing, i) => {
     const coords = getCoords(listing, i);
     const marker = L.marker(coords, { icon: makeMarkerIcon(listing.price_jpy === 0) });
     marker.bindPopup(makePopup(listing, i), { maxWidth: 260, minWidth: 260 });
     marker.on('click', () => highlightListItem(i));
-    marker.addTo(map);
+    markerCluster.addLayer(marker);
     markers.push(marker);
   });
 }
