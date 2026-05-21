@@ -1,0 +1,35 @@
+name: AkiyaFind Crawler
+
+on:
+  workflow_dispatch:
+    inputs:
+      prefectures:
+        description: 'Prefecture ken_cd numbers (space-separated, blank = all 47)'
+        required: false
+        default: ''
+      start_from:
+        description: 'Resume from prefecture index (0-based)'
+        required: false
+        default: '0'
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install selenium psycopg2-binary
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+      - name: Run crawler
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          ARGS=""
+          [ -n "${{ github.event.inputs.prefectures }}" ] && ARGS="--prefectures ${{ github.event.inputs.prefectures }}"
+          [ "${{ github.event.inputs.start_from }}" != "0" ] && ARGS="$ARGS --start-from ${{ github.event.inputs.start_from }}"
+          python3 crawler_selenium.py $ARGS
