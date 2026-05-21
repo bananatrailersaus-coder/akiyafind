@@ -68,7 +68,7 @@ def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price:
         query += " AND price_jpy <= %s"
         params.append(max_price)
 
-    query += " ORDER BY created_at DESC LIMIT 100"
+    query += " ORDER BY created_at DESC LIMIT 2000"
 
     cur.execute(query, params)
     rows = cur.fetchall()

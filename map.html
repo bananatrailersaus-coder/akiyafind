@@ -509,7 +509,12 @@ async function loadListings(params) {
     const sorted = sortListings(allListings, document.getElementById('sort-sel').value);
     renderList(sorted);
     renderMarkers(sorted);
-    if (!params.prefecture) { map.setView([36.5, 137.0], 5); }
+    if (!params.prefecture) {
+  const bounds = markers.filter(m => m).map(m => m.getLatLng());
+  if (bounds.length > 0) {
+    map.fitBounds(bounds.map(ll => [ll.lat, ll.lng]), { padding: [40, 40] });
+  }
+}
   } catch(e) {
     document.getElementById('listing-list').innerHTML = '<div class="list-empty"><div style="font-size:2rem">⚠️</div><h3>Error loading</h3><p>Please try again.</p></div>';
   }
