@@ -34,7 +34,7 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install selenium psycopg2-binary requests beautifulsoup4
+          pip install crawler_v3 psycopg2-binary requests beautifulsoup4
 
       - name: Set up Chrome
         uses: browser-actions/setup-chrome@v1
@@ -50,7 +50,7 @@ jobs:
           if [ "${{ github.event.inputs.start_from }}" != "0" ]; then
             ARGS="$ARGS --start-from ${{ github.event.inputs.start_from }}"
           fi
-          python3 crawler_selenium.py $ARGS
+          python3 crawler_v3.py $ARGS
 
       - name: Report results
         if: always()

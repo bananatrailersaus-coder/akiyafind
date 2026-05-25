@@ -23,8 +23,6 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install selenium psycopg2-binary
-      - name: Setup Chrome
-        uses: browser-actions/setup-chrome@v1
       - name: Run crawler
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -32,4 +30,4 @@ jobs:
           ARGS=""
           [ -n "${{ github.event.inputs.prefectures }}" ] && ARGS="--prefectures ${{ github.event.inputs.prefectures }}"
           [ "${{ github.event.inputs.start_from }}" != "0" ] && ARGS="$ARGS --start-from ${{ github.event.inputs.start_from }}"
-          python3 crawler_selenium.py $ARGS
+          python3 crawler_v3.py $ARGS
