@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       prefectures:
-        description: 'Prefecture ken_cd numbers (space-separated, blank = all 47)'
+        description: 'Prefecture codes (space-separated, blank = all 47)'
         required: false
         default: ''
       start_from:
@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install selenium psycopg2-binary
+        run: pip install requests psycopg2-binary beautifulsoup4
       - name: Run crawler
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
