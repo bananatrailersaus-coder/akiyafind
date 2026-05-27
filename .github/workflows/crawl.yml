@@ -11,6 +11,8 @@ on:
         description: 'Resume from prefecture index (0-based)'
         required: false
         default: '0'
+  schedule:
+    - cron: '0 17 * * *'
 
 jobs:
   crawl:
