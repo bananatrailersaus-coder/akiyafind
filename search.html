@@ -286,7 +286,8 @@ async function doSearch(params) {
 
   try {
     const res = await fetch(buildApiUrl(params));
-    allListings = await res.json();
+    const data = await res.json();
+allListings = Array.isArray(data) ? data : (data.listings || []);
     currentPage = 1;
     const total = allListings.length;
     countEl.innerHTML = '<strong>' + total + ' listing' + (total !== 1 ? 's' : '') + '</strong> found';
