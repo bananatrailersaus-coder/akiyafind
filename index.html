@@ -977,7 +977,7 @@
   </a>
   <ul>
     <li><a href="#listings">Browse</a></li>
-    <li><a href="/search">Search</a></li><li><a href="/search">Search</a></li><li><a href="#regions">Regions</a></li>
+    <li><a href="/search">Search</a></li><li><a href="#regions">Regions</a></li>
     <li><a href="#how">How It Works</a></li>
     <li><a href="#pricing">Pricing</a></li>
     <li><a href="#" class="nav-cta">Start Free</a></li>
@@ -1411,7 +1411,7 @@
 </body>
 </html>
 <script>
-fetch('/api/listings')
+fetch('/api/search?q=')
   .then(r => r.json())
   .then(listings => {
     const grid = document.querySelector('.listings-grid');
