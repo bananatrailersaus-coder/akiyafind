@@ -7,4 +7,3 @@ authlib
 httpx
 stripe
 itsdangerous
-git add -A && git commit -m "add stripe webhook and subscribe routes" && git push
