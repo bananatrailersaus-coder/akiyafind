@@ -372,3 +372,74 @@ def pricing_page():
     except FileNotFoundError:
         with open(os.path.join(base_dir, "index.html")) as f:
             return f.read()
+import stripe
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import Request, HTTPException
+
+stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
+
+PRICE_IDS = {
+    "searcher": "price_1Tbf5pDEatFf7dD17ECzSvCF",
+    "buyer":    "price_1Tbf6yDEatFf7dD1U6yAB8cz",
+}
+
+@app.get("/subscribe/{plan}")
+async def subscribe(plan: str, request: Request):
+    user = request.session.get("user")
+    if not user:
+        return RedirectResponse("/login")
+    if plan not in PRICE_IDS:
+        raise HTTPException(400, "Invalid plan")
+
+    session = stripe.checkout.Session.create(
+        payment_method_types=["card"],
+        mode="subscription",
+        line_items=[{"price": PRICE_IDS[plan], "quantity": 1}],
+        success_url="https://akiyafind.com/account?upgraded=1",
+        cancel_url="https://akiyafind.com/pricing",
+        customer_email=user["email"],
+        metadata={"user_email": user["email"], "plan": plan},
+    )
+    return RedirectResponse(session.url)
+
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature")
+    webhook_secret = os.environ["STRIPE_WEBHOOK_SECRET"]
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, webhook_secret)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        email = session["metadata"]["user_email"]
+        plan  = session["metadata"]["plan"]
+        sub_id = session.get("subscription")
+
+        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE users SET tier=%s, stripe_subscription_id=%s WHERE email=%s",
+            (plan, sub_id, email)
+        )
+        conn.commit()
+        conn.close()
+
+    elif event["type"] == "customer.subscription.deleted":
+        sub = event["data"]["object"]
+        sub_id = sub["id"]
+
+        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE users SET tier='free', stripe_subscription_id=NULL WHERE stripe_subscription_id=%s",
+            (sub_id,)
+        )
+        conn.commit()
+        conn.close()
+
+    return JSONResponse({"status": "ok"})
