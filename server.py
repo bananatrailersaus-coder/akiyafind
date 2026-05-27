@@ -107,3 +107,13 @@ def map_page():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     with open(os.path.join(base_dir, "map.html")) as f:
         return f.read()
+
+@app.get("/api/counts")
+def api_counts():
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    cur.execute("SELECT prefecture, COUNT(*) FROM listings GROUP BY prefecture")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return {"counts": {row[0]: row[1] for row in rows}}
