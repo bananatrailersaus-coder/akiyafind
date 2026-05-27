@@ -443,3 +443,9 @@ async def stripe_webhook(request: Request):
         conn.close()
 
     return JSONResponse({"status": "ok"})
+@app.get("/api/me")
+async def get_me(request: Request):
+    user = request.session.get("user")
+    if user:
+        return user
+    return {}
