@@ -6,3 +6,4 @@ beautifulsoup4
 authlib
 httpx
 stripe
+itsdangerous
