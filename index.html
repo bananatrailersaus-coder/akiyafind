@@ -1430,3 +1430,13 @@ fetch('/api/search?q=')
     });
   });
 </script>
+<script>
+fetch("/api/counts").then(r=>r.json()).then(data=>{
+  const c=data.counts||{};
+  const regions={"rc-Hokkaido":["Hokkaido"],"rc-Tohoku":["Aomori","Iwate","Miyagi","Akita","Yamagata","Fukushima"],"rc-Kanto":["Tokyo","Kanagawa","Saitama","Chiba","Ibaraki","Tochigi","Gunma"],"rc-Chubu":["Niigata","Toyama","Ishikawa","Fukui","Yamanashi","Nagano","Gifu","Shizuoka","Aichi"],"rc-Kansai":["Mie","Shiga","Kyoto","Osaka","Hyogo","Nara","Wakayama"],"rc-Chugoku":["Tottori","Shimane","Okayama","Hiroshima","Yamaguchi"],"rc-Shikoku":["Tokushima","Kagawa","Ehime","Kochi"],"rc-Kyushu":["Fukuoka","Saga","Nagasaki","Kumamoto","Oita","Miyazaki","Kagoshima"],"rc-Okinawa":["Okinawa"]};
+  Object.entries(regions).forEach(([id,prefs])=>{
+    const el=document.getElementById(id);
+    if(el){const t=prefs.reduce((s,p)=>s+(c[p]||0),0);el.textContent=t.toLocaleString()+" listings";}
+  });
+}).catch(()=>{});
+</script>
