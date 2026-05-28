@@ -53,13 +53,15 @@ def save_listing(cur, listing):
     cur.execute("""
         INSERT INTO listings
             (source_url, prefecture, city, title_jp, title_en,
-             price_jpy, size_m2, source_name, is_free)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        ON CONFLICT (source_url) DO NOTHING
+             price_jpy, size_m2, source_name, is_free, image_url)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (source_url) DO UPDATE SET
+            image_url = EXCLUDED.image_url
     """, (
         listing['source_url'], listing['prefecture'], listing['city'],
         listing['title_jp'], listing['title_en'], listing['price_jpy'],
-        listing['size_m2'], listing['source_name'], listing['price_jpy'] == 0
+        listing['size_m2'], listing['source_name'], listing['price_jpy'] == 0,
+        listing.get('image_url', '')
     ))
     return cur.rowcount == 1
 
@@ -160,7 +162,16 @@ def crawl_prefecture(code, pref_en, conn):
                 if '㎡' in line or 'm²' in line:
                     size_m2 = parse_size(line)
                     break
-
+# Image
+            image_url = ''
+            img_div = card.find('div', class_='imageCenter')
+            if img_div:
+                img_tag = img_div.find('img')
+                if img_tag and img_tag.get('src'):
+                    src = img_tag['src']
+                    if src.startswith('//'):
+                        src = 'https:' + src
+                    image_url = src
             listing = {
                 'source_url':  src_url,
                 'prefecture':  pref_en,
@@ -169,7 +180,8 @@ def crawl_prefecture(code, pref_en, conn):
                 'title_en':    '',
                 'price_jpy':   price_jpy,
                 'size_m2':     size_m2,
-                'source_name': 'akiya-athome.jp',
+                'source_name': 'akiya-athome.jp'
+                ,'image_url':   image_url, 
             }
 
             total_seen += 1
