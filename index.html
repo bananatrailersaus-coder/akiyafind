@@ -1419,22 +1419,28 @@
 </body>
 </html>
 <script>
+<script>
 fetch('/api/listings')
   .then(r => r.json())
-  .then(listings => {
+  .then(data => {
+    const listings = data.listings || data;
     const grid = document.querySelector('.listings-grid');
     if (!grid || !listings.length) return;
-    const extras = grid.querySelectorAll('.listing-card:not(.featured)');
-    extras.forEach((card, i) => {
+    const cards = grid.querySelectorAll('.listing-card:not(.featured)');
+    cards.forEach((card, i) => {
       if (!listings[i]) return;
       const l = listings[i];
       const aud = l.price_aud > 0 ? 'AUD $' + l.price_aud.toLocaleString() : 'FREE';
       const jpy = l.price_jpy > 0 ? '¥' + l.price_jpy.toLocaleString() + ' JPY' : '¥0 — Free transfer';
-      card.querySelector('.card-prefecture').innerHTML = '<span class="source-dot"></span> ' + l.prefecture + ' · ' + l.city;
-      card.querySelector('.card-title').textContent = l.title;
+      card.querySelector('.card-prefecture').innerHTML = '<span class="source-dot"></span> ' + l.prefecture + ' · ' + (l.city || '');
+      card.querySelector('.card-title').textContent = l.title || 'Vacant Property';
       card.querySelector('.card-price').textContent = aud;
       card.querySelector('.card-price-jpy').textContent = jpy;
-      card.querySelector('.card-source').innerHTML = '<span class="source-dot"></span> Source: ' + l.source + ' · Live data';
+      card.querySelector('.card-source').innerHTML = '<span class="source-dot"></span> Source: ' + (l.source_name || 'akiya-athome.jp') + ' · Live data';
+      if (l.image_url) {
+        const img = card.querySelector('.card-img');
+        if (img) img.src = '/api/img?url=' + encodeURIComponent(l.image_url);
+      }
     });
   });
 </script>
