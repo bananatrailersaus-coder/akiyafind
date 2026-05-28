@@ -449,3 +449,16 @@ async def get_me(request: Request):
     if user:
         return user
     return {}
+@app.get("/api/img")
+async def image_proxy(url: str, request: Request):
+    from fastapi.responses import Response
+    import httpx
+    try:
+        async with httpx.AsyncClient(verify=False) as client:
+            r = await client.get(url, headers={
+                "Referer": "https://www.akiya-athome.jp/",
+                "User-Agent": "Mozilla/5.0"
+            }, follow_redirects=True, timeout=10)
+        return Response(content=r.content, media_type=r.headers.get("content-type", "image/jpeg"))
+    except Exception as e:
+        return Response(content=b'', status_code=404)
