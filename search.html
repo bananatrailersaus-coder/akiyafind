@@ -199,7 +199,7 @@ function buildApiUrl(params) {
 }
 
 function renderCard(listing, index) {
-  const img = IMAGES[index % IMAGES.length];
+  const img = listing.image_url ? '/api/img?url=' + encodeURIComponent(listing.image_url) : IMAGES[index % IMAGES.length];
   const isFree = listing.price_jpy === 0;
   const aud = isFree ? 'FREE' : 'AUD $' + Math.round(listing.price_aud).toLocaleString();
   const jpy = isFree ? '¥0 — Free transfer' : '¥' + listing.price_jpy.toLocaleString() + ' JPY';
