@@ -301,7 +301,7 @@ def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price:
     conn = get_db()
     cur = conn.cursor()
     query = """SELECT title_en, prefecture, city, price_jpy, size_m2, source_name, source_url,
-                      is_free, lat, lng
+                      is_free, lat, lng, image_url
                FROM listings WHERE 1=1"""
     params = []
     if q:
@@ -331,6 +331,7 @@ def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price:
             "price_jpy": price_jpy, "price_aud": price_aud,
             "size_m2": row[4], "source_name": row[5], "source_url": row[6],
             "is_free": row[7], "lat": row[8], "lng": row[9],
+            "image_url": row[10] or "",
         })
     return {"listings": listings}
 
