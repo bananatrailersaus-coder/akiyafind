@@ -116,7 +116,7 @@ def get_listings():
     cur = conn.cursor()
     cur.execute("""
         SELECT title_en, prefecture, city, price_jpy, size_m2, source_name, source_url,
-               is_free, lat, lng
+               is_free, lat, lng, image_url
         FROM listings ORDER BY created_at DESC LIMIT 20
     """)
     rows = cur.fetchall()
@@ -138,6 +138,8 @@ def get_listings():
             "is_free": row[7],
             "lat": row[8],
             "lng": row[9],
+         "image_url": row[10] or "",
+
         })
     return listings
 
