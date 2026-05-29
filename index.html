@@ -1047,7 +1047,7 @@
   </div>
 </div>
 <script>
-fetch('/api/listings')
+document.addEventListener('DOMContentLoaded', function() { fetch('/api/listings')
   .then(r => r.json())
   .then(data => {
     const listings = (data.listings || data).slice(0, 5);
@@ -1082,6 +1082,7 @@ fetch('/api/listings')
         + '</div></div>';
     }).join('');
   });
+});
 </script>
 </body>
 </html>
