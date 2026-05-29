@@ -1067,7 +1067,7 @@ fetch('/api/listings')
       const city = (l.city || '').substring(0, 35);
       const featured = i === 0 ? ' featured' : '';
       const delay = i > 0 ? ' style="animation-delay:' + (i*0.05) + 's"' : '';
-      return '<div class="listing-card' + featured + ' reveal"' + delay + '>'
+      return '<div class="listing-card' + featured + ' reveal visible"' + delay + '>'
         + '<img class="card-img" src="' + img + '" alt="Property in ' + l.prefecture + '" loading="lazy">'
         + '<div class="card-body">'
         + '<div class="card-prefecture"><span class="source-dot"></span> ' + l.prefecture + ' · ' + city + '</div>'
