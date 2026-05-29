@@ -1047,7 +1047,7 @@
   </div>
 </div>
 <script>
-document.addEventListener('DOMContentLoaded', function() { fetch('/api/listings')
+fetch('/api/listings')
   .then(r => r.json())
   .then(data => {
     const listings = (data.listings || data).slice(0, 5);
@@ -1082,7 +1082,6 @@ document.addEventListener('DOMContentLoaded', function() { fetch('/api/listings'
         + '</div></div>';
     }).join('');
   });
-});
 </script>
 </body>
 </html>
