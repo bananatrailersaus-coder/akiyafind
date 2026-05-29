@@ -117,7 +117,7 @@ def get_listings():
     cur.execute("""
         SELECT title_en, prefecture, city, price_jpy, size_m2, source_name, source_url,
                is_free, lat, lng, image_url
-        FROM listings ORDER BY created_at DESC LIMIT 20
+        FROM listings ORDER BY RANDOM() LIMIT 20
     """)
     rows = cur.fetchall()
     cur.close()
@@ -318,7 +318,7 @@ def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price:
     if max_price:
         query += " AND price_jpy <= %s"
         params.append(max_price)
-    query += " ORDER BY created_at DESC LIMIT 2000"
+    query += " ORDER BY RANDOM() LIMIT 2000"
     cur.execute(query, params)
     rows = cur.fetchall()
     cur.close()
