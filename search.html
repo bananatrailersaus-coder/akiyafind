@@ -108,8 +108,7 @@
   <ul>
     <li><a href="/search">Browse</a></li>
     <li><a href="/#regions">Regions</a></li>
-    <li><a href="/#pricing">Pricing</a></li>
-    <li><a href="#" class="nav-cta">Start Free</a></li>
+    <li><a href="/account" class="nav-cta">My Alerts</a></li>
   </ul>
 </nav>
 
@@ -145,6 +144,8 @@
     </select>
     <button class="filter-btn" id="apply-filters">Apply</button>
     <button class="filter-clear" id="clear-filters">Clear all</button>
+    <button class="filter-btn" id="save-alert" style="margin-left:auto;">🔔 Email me new matches</button>
+    <span class="results-count" id="save-alert-msg"></span>
   </div>
 </div>
 
@@ -328,6 +329,31 @@ document.getElementById('clear-filters').addEventListener('click', () => {
   document.getElementById('filter-max-price').value = '0';
   window.history.pushState({}, '', '/search');
   doSearch({q:'', prefecture:'', min_price:0, max_price:0});
+});
+
+function currentFilters() {
+  return {
+    q: document.getElementById('search-input').value.trim(),
+    prefecture: document.getElementById('filter-prefecture').value,
+    min_price: parseInt(document.getElementById('filter-min-price').value || '0'),
+    max_price: parseInt(document.getElementById('filter-max-price').value || '0'),
+  };
+}
+
+document.getElementById('save-alert').addEventListener('click', async () => {
+  const msg = document.getElementById('save-alert-msg');
+  const res = await fetch('/api/alerts', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(currentFilters()),
+  });
+  if (res.status === 401) { window.location = '/auth/login'; return; }
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) {
+    msg.innerHTML = 'Saved. You\'ll get a daily email when new listings match. <a href="/account">Manage alerts</a>';
+  } else {
+    msg.textContent = data.detail || 'Could not save this alert.';
+  }
 });
 
 document.getElementById('sort-select').addEventListener('change', () => {

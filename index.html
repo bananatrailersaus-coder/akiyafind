@@ -49,8 +49,6 @@
 <meta name="geo.region" content="JP">
 <meta name="geo.placename" content="Japan">
 <link rel="alternate" hreflang="en" href="https://akiyafind.com/">
-<link rel="alternate" hreflang="fr" href="https://akiyafind.com/fr/">
-<link rel="alternate" hreflang="es" href="https://akiyafind.com/es/">
 <link rel="alternate" hreflang="x-default" href="https://akiyafind.com/">
 
 <!-- ═══════════════════════════════════════════════
@@ -86,7 +84,7 @@
   "name": "AkiyaFind",
   "url": "https://akiyafind.com",
   "logo": "https://akiyafind.com/logo.png",
-  "description": "AkiyaFind helps foreigners and locals search Japan's vacant houses (akiya) in English, French and Spanish.",
+  "description": "AkiyaFind helps foreigners and locals search Japan's vacant houses (akiya) in English.",
   "foundingDate": "2026",
   "areaServed": {
     "@type": "Country",
@@ -138,7 +136,7 @@
       "name": "How much does AkiyaFind cost?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "AkiyaFind has a free plan that lets you browse all listings with basic details. The Searcher plan costs AUD $4 per month and unlocks full listing details, agent contacts, and email alerts. The Buyer plan costs AUD $12 per month and adds hazard maps, renovation subsidy lookup, and concierge support."
+        "text": "AkiyaFind is free to browse. Sign in with Google to save a search and get a daily email when new listings match it."
       }
     },
     {
@@ -146,7 +144,7 @@
       "name": "How often are listings updated?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Our crawler refreshes listings from municipal and commercial sources every 24 hours. Paid Buyer plan members receive real-time alerts within one hour of a new match being published."
+        "text": "Our crawler refreshes listings every 24 hours. Saved-search email alerts go out once a day after each refresh."
       }
     }
   ]
@@ -170,21 +168,7 @@
       "name": "Explorer",
       "price": "0",
       "priceCurrency": "AUD",
-      "description": "Free plan — browse all listings with basic detail"
-    },
-    {
-      "@type": "Offer",
-      "name": "Searcher",
-      "price": "4",
-      "priceCurrency": "AUD",
-      "description": "Full listing details, email alerts, agent contacts"
-    },
-    {
-      "@type": "Offer",
-      "name": "Buyer",
-      "price": "12",
-      "priceCurrency": "AUD",
-      "description": "Everything in Searcher plus concierge support and hazard maps"
+      "description": "Browse all listings and get a daily email alert for a saved search"
     }
   ]
 }
@@ -980,11 +964,11 @@
 <li><a href="/map">Map</a></li>
     <li><a href="#regions">Regions</a></li>
     <li><a href="#how">How It Works</a></li>
-    <li><a href="#pricing">Pricing</a></li>
     <li id="nav-auth-btn"><a href="/auth/login" class="nav-cta">Sign In</a></li>
   </ul>
 <script>
-  fetch('/api/me').then(r => r.json()).then(user => {
+  fetch('/api/me').then(r => r.json()).then(data => {
+    const user = data && data.user;
     if (user && user.email) {
       document.getElementById('nav-auth-btn').innerHTML = 
         '<a href="/account" class="nav-cta">' + (user.name || 'My Account') + '</a>';
@@ -1028,10 +1012,8 @@
 <!-- FEATURES STRIP -->
 <div class="features-strip">
   <div class="feature-item"><span>🇯🇵</span> All 47 prefectures covered</div>
-  <div class="feature-item"><span>🌐</span> English, French & Spanish</div>
-  <div class="feature-item"><span>🔔</span> Instant email alerts</div>
-  <div class="feature-item"><span>🗺</span> Map, grid & list views</div>
-  <div class="feature-item"><span>💴</span> 30+ currency conversions</div>
+  <div class="feature-item"><span>🔔</span> Daily email alerts</div>
+  <div class="feature-item"><span>🗺</span> Map & grid views</div>
 </div>
 
 <!-- FEATURED LISTINGS -->
