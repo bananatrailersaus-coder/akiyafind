@@ -3,7 +3,7 @@ server.py — AkiyaFind (with Google OAuth + Stripe payments)
 Replace your existing server.py with this file.
 """
 
-import os, secrets, hashlib, hmac
+import os, secrets, hashlib, hmac, html
 from urllib.parse import urlparse
 import httpx
 import psycopg2
@@ -13,6 +13,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Resp
 from fastapi.middleware.cors import CORSMiddleware
 from authlib.integrations.starlette_client import OAuth
 from starlette.middleware.sessions import SessionMiddleware
+
+from alerts import ensure_alert_schema, listing_filter_sql, ALERT_LIMITS
 
 # ---------------------------------------------------------------------------
 # Config
@@ -27,8 +29,10 @@ STRIPE_SECRET_KEY      = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY")
 STRIPE_WEBHOOK_SECRET  = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
-STRIPE_SEARCHER_PRICE = os.environ.get("STRIPE_SEARCHER_PRICE", "price_1Tbf5pDEatFf7dD17ECzSvCF")
-STRIPE_BUYER_PRICE    = os.environ.get("STRIPE_BUYER_PRICE",    "price_1Tbf6yDEatFf7dD1U6yAB8cz")
+STRIPE_SEARCHER_PRICE = os.environ.get("STRIPE_SEARCHER_PRICE")
+
+# Checkout is only offered once every piece Stripe needs is configured.
+PAYMENTS_ENABLED = bool(STRIPE_SECRET_KEY and STRIPE_SEARCHER_PRICE and STRIPE_WEBHOOK_SECRET)
 
 BASE_URL = os.environ.get("BASE_URL", "https://akiyafind.com")
 
@@ -72,6 +76,7 @@ def ensure_tables():
             created_at        TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    ensure_alert_schema(cur)
     conn.commit()
     cur.close()
     conn.close()
@@ -193,7 +198,14 @@ async def api_me(request: Request):
     user = get_current_user(request)
     if not user:
         return JSONResponse({"user": None})
-    return JSONResponse({"user": user})
+    # Re-read from the DB so a tier change from the Stripe webhook shows without re-login.
+    user = get_user_by_email(user["email"]) or user
+    request.session["user"] = user
+    return JSONResponse({
+        "user": user,
+        "payments_enabled": PAYMENTS_ENABLED,
+        "alert_limit": ALERT_LIMITS.get(user.get("tier"), ALERT_LIMITS["free"]),
+    })
 
 # ---------------------------------------------------------------------------
 # Stripe checkout
@@ -204,9 +216,14 @@ async def create_checkout(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Not logged in")
 
+    if not PAYMENTS_ENABLED:
+        raise HTTPException(status_code=503, detail="Payments are not available yet")
+
     body = await request.json()
-    plan = body.get("plan")  # "searcher" or "buyer"
-    price_id = STRIPE_SEARCHER_PRICE if plan == "searcher" else STRIPE_BUYER_PRICE
+    plan = body.get("plan")
+    if plan != "searcher":
+        raise HTTPException(status_code=400, detail="Invalid plan")
+    price_id = STRIPE_SEARCHER_PRICE
 
     # Create or retrieve Stripe customer
     customer_id = user.get("stripe_customer_id")
@@ -263,12 +280,7 @@ async def stripe_webhook(request: Request):
         sub = event["data"]["object"]
         customer_id = sub["customer"]
         status = sub["status"]
-        # Get price to determine tier
-        price_id = sub["items"]["data"][0]["price"]["id"]
-        if status == "active":
-            tier = "buyer" if price_id == STRIPE_BUYER_PRICE else "searcher"
-        else:
-            tier = "free"
+        tier = "searcher" if status == "active" else "free"
         conn = get_db()
         cur = conn.cursor()
         cur.execute("UPDATE users SET tier=%s, stripe_sub_id=%s WHERE stripe_customer_id=%s",
@@ -301,23 +313,10 @@ def api_listings():
 def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price: int = 0):
     conn = get_db()
     cur = conn.cursor()
+    where, params = listing_filter_sql(q, prefecture, min_price, max_price)
     query = """SELECT title_en, prefecture, city, price_jpy, size_m2, source_name, source_url,
                       is_free, lat, lng, image_url
-               FROM listings WHERE 1=1"""
-    params = []
-    if q:
-        query += " AND (LOWER(city) LIKE %s OR LOWER(prefecture) LIKE %s OR LOWER(title_en) LIKE %s)"
-        params += [f"%{q.lower()}%"] * 3
-    if prefecture:
-        query += " AND LOWER(prefecture) = %s"
-        params.append(prefecture.lower())
-    if min_price:
-        query += " AND price_jpy >= %s"
-        params.append(min_price)
-    if max_price:
-        query += " AND price_jpy <= %s"
-        params.append(max_price)
-    query += " ORDER BY RANDOM() LIMIT 2000"
+               FROM listings WHERE 1=1""" + where + " ORDER BY RANDOM() LIMIT 2000"
     cur.execute(query, params)
     rows = cur.fetchall()
     cur.close()
@@ -335,6 +334,112 @@ def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price:
             "image_url": row[10] or "",
         })
     return {"listings": listings}
+
+# ---------------------------------------------------------------------------
+# Saved-search email alerts (sent daily by alerts.py after the crawl)
+# ---------------------------------------------------------------------------
+def _require_db_user(request: Request):
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not logged in")
+    db_user = get_user_by_email(user["email"])
+    if not db_user:
+        raise HTTPException(status_code=401, detail="Not logged in")
+    return db_user
+
+def _alert_row(row):
+    return {"id": row[0], "q": row[1], "prefecture": row[2],
+            "min_price": row[3], "max_price": row[4], "created_at": row[5].isoformat()}
+
+@app.get("/api/alerts")
+def list_alerts(request: Request):
+    user = _require_db_user(request)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, q, prefecture, min_price, max_price, created_at
+                   FROM saved_searches WHERE user_id=%s ORDER BY id""", (user["id"],))
+    alerts = [_alert_row(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return {"alerts": alerts, "limit": ALERT_LIMITS.get(user["tier"], ALERT_LIMITS["free"])}
+
+@app.post("/api/alerts")
+async def create_alert(request: Request):
+    user = _require_db_user(request)
+    body = await request.json()
+    try:
+        q          = str(body.get("q") or "").strip()[:100]
+        prefecture = str(body.get("prefecture") or "").strip()[:30]
+        min_price  = max(0, int(body.get("min_price") or 0))
+        max_price  = max(0, int(body.get("max_price") or 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid search")
+
+    limit = ALERT_LIMITS.get(user["tier"], ALERT_LIMITS["free"])
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""SELECT id FROM saved_searches WHERE user_id=%s AND q=%s AND prefecture=%s
+                       AND min_price=%s AND max_price=%s""",
+                    (user["id"], q, prefecture, min_price, max_price))
+        if cur.fetchone():
+            raise HTTPException(status_code=409, detail="You already have an alert for this search")
+        cur.execute("SELECT COUNT(*) FROM saved_searches WHERE user_id=%s", (user["id"],))
+        if cur.fetchone()[0] >= limit:
+            raise HTTPException(status_code=403, detail=f"Your plan allows {limit} alert{'s' if limit != 1 else ''}")
+        cur.execute("""INSERT INTO saved_searches (user_id, q, prefecture, min_price, max_price, unsub_token)
+                       VALUES (%s, %s, %s, %s, %s, %s)
+                       RETURNING id, q, prefecture, min_price, max_price, created_at""",
+                    (user["id"], q, prefecture, min_price, max_price, secrets.token_urlsafe(24)))
+        alert = _alert_row(cur.fetchone())
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+    return {"alert": alert}
+
+@app.delete("/api/alerts/{alert_id}")
+def delete_alert(alert_id: int, request: Request):
+    user = _require_db_user(request)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM saved_searches WHERE id=%s AND user_id=%s", (alert_id, user["id"]))
+    deleted = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return {"status": "ok"}
+
+UNSUB_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Unsubscribe — AkiyaFind</title></head>
+<body style="font-family:Arial,sans-serif;background:#f9f6f1;color:#1a1a1a;padding:60px 16px;text-align:center;">
+<h1 style="font-size:1.4rem;">{heading}</h1><p>{body}</p><p><a href="/" style="color:#c84b2f;">Back to AkiyaFind</a></p>
+</body></html>"""
+
+# GET only shows a confirm button: mail scanners prefetch links, so a GET must not unsubscribe.
+@app.get("/alerts/unsubscribe", response_class=HTMLResponse)
+def unsubscribe_confirm(token: str = ""):
+    if not token:
+        return UNSUB_PAGE.format(heading="Invalid unsubscribe link", body="Manage your alerts from your account page.")
+    form = (f'<form method="post" action="/alerts/unsubscribe?token={html.escape(token, quote=True)}">'
+            '<button type="submit" style="background:#c84b2f;color:white;border:none;padding:12px 28px;'
+            'border-radius:6px;font-size:1rem;cursor:pointer;">Unsubscribe</button></form>')
+    return UNSUB_PAGE.format(heading="Stop this email alert?", body=form)
+
+# POST handles both the confirm button and RFC 8058 one-click unsubscribe from mail clients.
+@app.post("/alerts/unsubscribe", response_class=HTMLResponse)
+def unsubscribe(token: str = ""):
+    if token:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM saved_searches WHERE unsub_token=%s", (token,))
+        conn.commit()
+        cur.close()
+        conn.close()
+    return UNSUB_PAGE.format(heading="You're unsubscribed",
+                             body="You won't get any more emails for that search.")
 
 @app.get("/api/counts")
 def api_counts():

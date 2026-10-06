@@ -33,3 +33,10 @@ jobs:
           [ -n "${{ github.event.inputs.prefectures }}" ] && ARGS="--prefectures ${{ github.event.inputs.prefectures }}"
           [ "${{ github.event.inputs.start_from }}" != "0" ] && ARGS="$ARGS --start-from ${{ github.event.inputs.start_from }}"
           python3 crawler_v3.py $ARGS
+
+      - name: Send saved-search email alerts
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERT_FROM_EMAIL: ${{ secrets.ALERT_FROM_EMAIL }}
+        run: python3 alerts.py
