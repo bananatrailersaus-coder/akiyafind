@@ -984,7 +984,8 @@
     <li id="nav-auth-btn"><a href="/auth/login" class="nav-cta">Sign In</a></li>
   </ul>
 <script>
-  fetch('/api/me').then(r => r.json()).then(user => {
+  fetch('/api/me').then(r => r.json()).then(data => {
+    const user = data && data.user;
     if (user && user.email) {
       document.getElementById('nav-auth-btn').innerHTML = 
         '<a href="/account" class="nav-cta">' + (user.name || 'My Account') + '</a>';

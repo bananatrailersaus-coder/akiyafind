@@ -4,10 +4,12 @@ Replace your existing server.py with this file.
 """
 
 import os, secrets, hashlib, hmac
+from urllib.parse import urlparse
+import httpx
 import psycopg2
 import stripe
 from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from authlib.integrations.starlette_client import OAuth
 from starlette.middleware.sessions import SessionMiddleware
@@ -250,13 +252,10 @@ async def stripe_webhook(request: Request):
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
 
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook not configured")
     try:
-        if STRIPE_WEBHOOK_SECRET:
-            event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
-        else:
-            event = stripe.Event.construct_from(
-                __import__("json").loads(payload), stripe.api_key
-            )
+        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -375,93 +374,30 @@ def pricing_page():
     except FileNotFoundError:
         with open(os.path.join(base_dir, "index.html")) as f:
             return f.read()
-import stripe
-from fastapi.responses import JSONResponse, RedirectResponse
-from fastapi import Request, HTTPException
+# Only proxy listing photos from the source site, never arbitrary URLs.
+IMG_PROXY_HOSTS = ("akiya-athome.jp", "athome.jp")
 
-stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
-
-PRICE_IDS = {
-    "searcher": "price_1Tbf5pDEatFf7dD17ECzSvCF",
-    "buyer":    "price_1Tbf6yDEatFf7dD1U6yAB8cz",
-}
-
-@app.get("/subscribe/{plan}")
-async def subscribe(plan: str, request: Request):
-    user = request.session.get("user")
-    if not user:
-        return RedirectResponse("/login")
-    if plan not in PRICE_IDS:
-        raise HTTPException(400, "Invalid plan")
-
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        mode="subscription",
-        line_items=[{"price": PRICE_IDS[plan], "quantity": 1}],
-        success_url="https://akiyafind.com/account?upgraded=1",
-        cancel_url="https://akiyafind.com/pricing",
-        customer_email=user["email"],
-        metadata={"user_email": user["email"], "plan": plan},
+def _is_allowed_img_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme in ("http", "https") and (
+        any(host == h or host.endswith("." + h) for h in IMG_PROXY_HOSTS)
     )
-    return RedirectResponse(session.url)
 
-
-@app.post("/stripe/webhook")
-async def stripe_webhook(request: Request):
-    payload = await request.body()
-    sig = request.headers.get("stripe-signature")
-    webhook_secret = os.environ["STRIPE_WEBHOOK_SECRET"]
-
-    try:
-        event = stripe.Webhook.construct_event(payload, sig, webhook_secret)
-    except Exception as e:
-        raise HTTPException(400, str(e))
-
-    if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-        email = session["metadata"]["user_email"]
-        plan  = session["metadata"]["plan"]
-        sub_id = session.get("subscription")
-
-        conn = psycopg2.connect(os.environ["DATABASE_URL"])
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE users SET tier=%s, stripe_subscription_id=%s WHERE email=%s",
-            (plan, sub_id, email)
-        )
-        conn.commit()
-        conn.close()
-
-    elif event["type"] == "customer.subscription.deleted":
-        sub = event["data"]["object"]
-        sub_id = sub["id"]
-
-        conn = psycopg2.connect(os.environ["DATABASE_URL"])
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE users SET tier='free', stripe_subscription_id=NULL WHERE stripe_subscription_id=%s",
-            (sub_id,)
-        )
-        conn.commit()
-        conn.close()
-
-    return JSONResponse({"status": "ok"})
-@app.get("/api/me")
-async def get_me(request: Request):
-    user = request.session.get("user")
-    if user:
-        return user
-    return {}
 @app.get("/api/img")
 async def image_proxy(url: str, request: Request):
-    from fastapi.responses import Response
-    import httpx
+    if not _is_allowed_img_url(url):
+        return Response(content=b'', status_code=400)
     try:
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient() as client:
             r = await client.get(url, headers={
                 "Referer": "https://www.akiya-athome.jp/",
                 "User-Agent": "Mozilla/5.0"
-            }, follow_redirects=True, timeout=10)
-        return Response(content=r.content, media_type=r.headers.get("content-type", "image/jpeg"))
-    except Exception as e:
+            }, follow_redirects=False, timeout=10)
+        content_type = r.headers.get("content-type", "")
+        if r.status_code != 200 or not content_type.startswith("image/"):
+            return Response(content=b'', status_code=404)
+        return Response(content=r.content, media_type=content_type,
+                        headers={"Cache-Control": "public, max-age=86400"})
+    except Exception:
         return Response(content=b'', status_code=404)
