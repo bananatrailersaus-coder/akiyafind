@@ -16,7 +16,8 @@ Usage:
 import requests
 from bs4 import BeautifulSoup
 import psycopg2
-import os, re, time, argparse
+import os, re, sys, time, argparse
+from urllib.robotparser import RobotFileParser
 
 from schema import ensure_listing_columns
 
@@ -24,8 +25,10 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL not set")
 
+# Identify honestly so the site can tell who we are and allow or refuse us.
+BOT_NAME = 'AkiyaFindBot'
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+    'User-Agent': f'{BOT_NAME}/1.0 (+https://akiyafind.com)',
     'Accept-Language': 'ja,en;q=0.9',
 }
 
@@ -78,19 +81,50 @@ def save_listing(cur, listing):
     ))
     return cur.fetchone()[0]
 
+class Blocked(Exception):
+    """The source site refused us: 401/403, still 429 after retries, or robots.txt disallows us."""
+
 def fetch_page(url, attempts=3):
-    """Returns the response, None for a 404 (past the last page), or raises after retries."""
+    """Returns the response, or None for a 404 (past the last page).
+
+    Raises Blocked when the site refuses access — retrying a refusal only
+    gets refused again. Network errors and 5xx are retried; after the last
+    attempt the error is raised.
+    """
     for attempt in range(1, attempts + 1):
         try:
             r = requests.get(url, headers=HEADERS, timeout=30, verify=False)
-            if r.status_code == 404:
-                return None
-            r.raise_for_status()
-            return r
-        except Exception:
+        except requests.RequestException:
             if attempt == attempts:
                 raise
             time.sleep(5 * attempt)
+            continue
+        if r.status_code == 404:
+            return None
+        if r.status_code in (401, 403):
+            raise Blocked(f"HTTP {r.status_code} for {url}")
+        if r.status_code == 429 or r.status_code >= 500:
+            if attempt == attempts:
+                if r.status_code == 429:
+                    raise Blocked(f"HTTP 429 (rate limited) for {url} after {attempts} attempts")
+                r.raise_for_status()
+            time.sleep(5 * attempt)
+            continue
+        r.raise_for_status()  # any other 4xx isn't transient: fail without retrying
+        return r
+
+def check_robots(sample_url):
+    """Raise Blocked unless robots.txt lets us fetch listing pages. Returns its crawl delay, if any."""
+    r = requests.get(SITE + '/robots.txt', headers=HEADERS, timeout=30, verify=False)
+    if r.status_code in (401, 403):
+        raise Blocked(f"HTTP {r.status_code} for robots.txt")
+    if r.status_code >= 400:
+        return None  # no robots.txt: nothing is disallowed
+    rp = RobotFileParser()
+    rp.parse(r.text.splitlines())
+    if not rp.can_fetch(BOT_NAME, sample_url):
+        raise Blocked(f"robots.txt disallows {sample_url} for {BOT_NAME}")
+    return rp.crawl_delay(BOT_NAME)
 
 def mark_delisted(conn, pref_en, crawl_started, seen):
     """After a complete crawl, hide listings in this prefecture that it didn't find."""
@@ -263,7 +297,7 @@ def parse_listings(html, pref_en):
         })
     return listings
 
-def crawl_prefecture(code, pref_en, conn):
+def crawl_prefecture(code, pref_en, conn, page_delay=1.5):
     cur = conn.cursor()
     cur.execute("SELECT NOW()")
     crawl_started = cur.fetchone()[0]
@@ -278,6 +312,12 @@ def crawl_prefecture(code, pref_en, conn):
         url = f"https://www.akiya-athome.jp/buy/{code}/?page={page}"
         try:
             r = fetch_page(url)
+        except Blocked:
+            cur.execute("""INSERT INTO crawl_log (prefecture, started_at, complete, seen, delisted)
+                           VALUES (%s, %s, FALSE, %s, 0)""", (pref_en, crawl_started, total_seen))
+            conn.commit()
+            cur.close()
+            raise
         except Exception as e:
             print(f"  ERROR page {page}: {e} — crawl incomplete, nothing marked delisted")
             break
@@ -302,7 +342,7 @@ def crawl_prefecture(code, pref_en, conn):
             break
 
         page += 1
-        time.sleep(1.5)
+        time.sleep(page_delay)
 
     delisted = 0
     if complete:
@@ -328,11 +368,32 @@ def main(pref_filter=None, start_from=0):
     if pref_filter:
         pref_items = [(k, v) for k, v in PREFECTURES.items() if k in pref_filter]
 
+    if not pref_items:
+        print("No prefectures to crawl.")
+        conn.close()
+        return
+
+    def stop(reason):
+        conn.close()
+        print(f"\nBLOCKED: akiya-athome.jp refused access ({reason}).")
+        print("Stopping the whole run: every other request would be refused too. The refused prefecture "
+              "is unchanged; any prefecture already finished in this run keeps its results.")
+        sys.exit(2)
+
+    try:
+        delay = check_robots(f"{SITE}/buy/{pref_items[0][0]}/?page=1")
+    except Blocked as e:
+        stop(e)
+    page_delay = max(1.5, delay or 0)
+
     for code, pref_en in pref_items:
         print(f"\n{'='*50}")
         print(f"  {pref_en} (code={code})")
         print(f"{'='*50}")
-        seen, inserted, delisted = crawl_prefecture(code, pref_en, conn)
+        try:
+            seen, inserted, delisted = crawl_prefecture(code, pref_en, conn, page_delay)
+        except Blocked as e:
+            stop(e)
         grand_total_seen += seen
         grand_total_inserted += inserted
         grand_total_delisted += delisted
