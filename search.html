@@ -56,6 +56,8 @@
   .filter-clear { background: transparent; color: var(--mist); border: 1px solid rgba(168,184,176,0.4); cursor: pointer; padding: 8px 14px; border-radius: 4px; font-family: 'DM Sans', sans-serif; font-size: 0.83rem; }
   .filter-clear:hover { color: var(--ink); }
   .results-area { max-width: 1200px; margin: 0 auto; padding: 32px 48px; }
+  .data-notice { font-size: 0.8rem; color: #6b7a73; margin: 0 0 16px; }
+  .data-notice.stale { background: #fff6e0; border: 1px solid #e8c77a; color: #6b4e0e; padding: 10px 14px; border-radius: 6px; }
   .results-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
   .results-count { font-size: 0.85rem; color: var(--mist); }
   .results-count strong { color: var(--ink); font-weight: 600; }
@@ -159,6 +161,7 @@
       <option value="size-desc">Largest first</option>
     </select>
   </div>
+  <div class="data-notice" id="data-notice" hidden></div>
   <div class="results-grid" id="results-grid">
     <div class="loading-state"><div class="spinner"></div><p style="color:var(--mist);font-size:0.9rem">Searching listings…</p></div>
   </div>
@@ -166,6 +169,22 @@
 </div>
 
 <script>
+// Data-freshness notice: the listings are only as current as the last full crawl.
+function showFreshness(f) {
+  const el = document.getElementById('data-notice');
+  if (!el || !f || !f.refreshed_at) return;
+  const d = new Date(f.refreshed_at + 'T00:00:00Z').toLocaleDateString('en-AU',
+    { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+  el.textContent = f.stale
+    ? 'Listings last refreshed ' + d + '. Some may have sold since, so always check the source listing.'
+    : 'Listings refreshed daily · last updated ' + d + '.';
+  el.className = 'data-notice' + (f.stale ? ' stale' : '');
+  el.hidden = false;
+}
+// Analytics events (Umami). No-op when analytics isn't configured.
+function track(name, data) {
+  try { if (window.umami) window.umami.track(name, data); } catch (e) {}
+}
 // Shown when a listing has no photo or its photo fails to load. Never a stock
 // photo: a picture that isn't the property misleads buyers.
 const NO_PHOTO = 'data:image/svg+xml,' + encodeURIComponent(
@@ -212,7 +231,7 @@ function renderCard(listing, index) {
   const href = listing.source_url || '#';
   const title = (listing.title || 'Vacant house — ' + listing.prefecture).replace('不明', '').trim();
 
-  return `<a class="result-card" href="${href}" target="_blank" rel="noopener">
+  return `<a class="result-card" href="${href}" target="_blank" rel="noopener" data-umami-event="listing-click" data-umami-event-prefecture="${listing.prefecture}" data-umami-event-page="search">
     <div class="card-img-wrap">
       <img src="${img}" alt="Property in ${listing.prefecture}" loading="lazy" ${PHOTO_FALLBACK}>
       <span class="card-badge ${isFree ? 'free' : ''}">${isFree ? 'Free Transfer' : 'Akiya'}</span>
@@ -226,7 +245,7 @@ function renderCard(listing, index) {
         ${size ? '<span class="meta-tag">' + size + '</span>' : ''}
         ${city ? '<span class="meta-tag">' + city + '</span>' : ''}
       </div>
-      <div class="card-source">● ${listing.source_name} · Live data</div>
+      <div class="card-source">● Source: ${listing.source_name}</div>
     </div>
   </a>`;
 }
@@ -293,9 +312,12 @@ async function doSearch(params) {
   try {
     const res = await fetch(buildApiUrl(params));
     const data = await res.json();
-allListings = Array.isArray(data) ? data : (data.listings || []);
+    allListings = Array.isArray(data) ? data : (data.listings || []);
+    showFreshness(data.freshness);
     currentPage = 1;
     const total = allListings.length;
+    track('search', { prefecture: params.prefecture || 'all', keyword: params.q ? 'yes' : 'no',
+                      price_filter: (params.min_price || params.max_price) ? 'yes' : 'no', results: total });
     countEl.innerHTML = '<strong>' + total + ' listing' + (total !== 1 ? 's' : '') + '</strong> found';
     renderPage();
   } catch(e) {
@@ -356,6 +378,7 @@ document.getElementById('save-alert').addEventListener('click', async () => {
   const data = await res.json().catch(() => ({}));
   if (res.ok) {
     msg.innerHTML = 'Saved. You\'ll get a daily email when new listings match. <a href="/account">Manage alerts</a>';
+    track('alert-saved', { prefecture: currentFilters().prefecture || 'all' });
   } else {
     msg.textContent = data.detail || 'Could not save this alert.';
   }

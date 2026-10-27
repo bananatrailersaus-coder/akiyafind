@@ -4,6 +4,7 @@ Replace your existing server.py with this file.
 """
 
 import os, secrets, hashlib, hmac, html
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 import httpx
 import psycopg2
@@ -35,6 +36,15 @@ STRIPE_SEARCHER_PRICE = os.environ.get("STRIPE_SEARCHER_PRICE")
 PAYMENTS_ENABLED = bool(STRIPE_SECRET_KEY and STRIPE_SEARCHER_PRICE and STRIPE_WEBHOOK_SECRET)
 
 BASE_URL = os.environ.get("BASE_URL", "https://akiyafind.com")
+
+# Privacy-friendly analytics (Umami: no cookies, no personal data). Off until
+# UMAMI_WEBSITE_ID is set; UMAMI_SCRIPT_URL only changes for self-hosting.
+UMAMI_WEBSITE_ID = os.environ.get("UMAMI_WEBSITE_ID", "").strip()
+UMAMI_SCRIPT_URL = os.environ.get("UMAMI_SCRIPT_URL", "").strip() or "https://cloud.umami.is/script.js"
+
+# Last full crawl before crawl_log existed (manual run #3, 26 May 2026).
+LEGACY_REFRESH = datetime(2026, 5, 26, tzinfo=timezone.utc)
+STALE_AFTER = timedelta(days=3)
 
 stripe.api_key = STRIPE_SECRET_KEY
 
@@ -189,9 +199,7 @@ async def account_page(request: Request):
     user = get_current_user(request)
     if not user:
         return RedirectResponse(url="/auth/login")
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(base_dir, "account.html")) as f:
-        return f.read()
+    return render_page("account.html")
 
 @app.get("/api/me")
 async def api_me(request: Request):
@@ -304,10 +312,29 @@ async def stripe_webhook(request: Request):
 # ---------------------------------------------------------------------------
 # Existing routes (unchanged)
 # ---------------------------------------------------------------------------
+def data_freshness():
+    """How old the data really is: the oldest "last complete crawl" among
+    prefectures that have listings. One prefecture that keeps failing makes
+    the whole site honestly stale."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT MIN(COALESCE(c.last_ok, %s))
+        FROM (SELECT DISTINCT prefecture FROM listings WHERE delisted_at IS NULL) p
+        LEFT JOIN (SELECT prefecture, MAX(finished_at) AS last_ok
+                   FROM crawl_log WHERE complete GROUP BY prefecture) c
+          ON c.prefecture = p.prefecture
+    """, (LEGACY_REFRESH,))
+    oldest = cur.fetchone()[0] or LEGACY_REFRESH
+    cur.close()
+    conn.close()
+    return {"refreshed_at": oldest.date().isoformat(),
+            "stale": datetime.now(timezone.utc) - oldest > STALE_AFTER}
+
 @app.get("/api/listings")
 def api_listings():
     listings = get_listings()
-    return {"listings": listings}
+    return {"listings": listings, "freshness": data_freshness()}
 
 @app.get("/api/search")
 def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price: int = 0):
@@ -333,7 +360,7 @@ def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price:
             "is_free": row[7], "lat": row[8], "lng": row[9],
             "image_url": row[10] or "",
         })
-    return {"listings": listings}
+    return {"listings": listings, "freshness": data_freshness()}
 
 # ---------------------------------------------------------------------------
 # Saved-search email alerts (sent daily by alerts.py after the crawl)
@@ -451,34 +478,36 @@ def api_counts():
     conn.close()
     return {"counts": {row[0]: row[1] for row in rows}}
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def render_page(name):
+    with open(os.path.join(BASE_DIR, name)) as f:
+        page = f.read()
+    if UMAMI_WEBSITE_ID:
+        tag = (f'<script defer src="{html.escape(UMAMI_SCRIPT_URL)}" '
+               f'data-website-id="{html.escape(UMAMI_WEBSITE_ID)}"></script>')
+        page = page.replace("</head>", tag + "\n</head>", 1)
+    return page
+
 @app.get("/search", response_class=HTMLResponse)
 def search_page():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(base_dir, "search.html")) as f:
-        return f.read()
+    return render_page("search.html")
 
 @app.get("/", response_class=HTMLResponse)
 def homepage():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(base_dir, "index.html")) as f:
-        return f.read()
+    return render_page("index.html")
 
 @app.get("/map", response_class=HTMLResponse)
 def map_page():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(base_dir, "map.html")) as f:
-        return f.read()
+    return render_page("map.html")
 
 @app.get("/pricing", response_class=HTMLResponse)
 def pricing_page():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
     # Try pricing.html, fall back to index.html#pricing
     try:
-        with open(os.path.join(base_dir, "pricing.html")) as f:
-            return f.read()
+        return render_page("pricing.html")
     except FileNotFoundError:
-        with open(os.path.join(base_dir, "index.html")) as f:
-            return f.read()
+        return render_page("index.html")
 # Only proxy listing photos from the source site, never arbitrary URLs.
 IMG_PROXY_HOSTS = ("akiya-athome.jp", "athome.jp")
 

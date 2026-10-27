@@ -952,6 +952,10 @@
     h1 { font-size: 2.4rem; }
   }
 </style>
+<style>
+  .data-notice { font-size: 0.8rem; color: #6b7a73; margin: 0 0 16px; }
+  .data-notice.stale { background: #fff6e0; border: 1px solid #e8c77a; color: #6b4e0e; padding: 10px 14px; border-radius: 6px; }
+</style>
 </head>
 <body>
 
@@ -964,7 +968,7 @@
 <li><a href="/map">Map</a></li>
     <li><a href="#regions">Regions</a></li>
     <li><a href="#how">How It Works</a></li>
-    <li id="nav-auth-btn"><a href="/auth/login" class="nav-cta">Sign In</a></li>
+    <li id="nav-auth-btn"><a href="/auth/login" class="nav-cta" data-umami-event="sign-in-click">Sign In</a></li>
   </ul>
 <script>
   fetch('/api/me').then(r => r.json()).then(data => {
@@ -1025,10 +1029,27 @@
     </div>
     <a href="/search" class="view-all">View all listings →</a>
   </div>
+  <div class="data-notice" id="data-notice" hidden></div>
   <div class="listings-grid" id="homepage-listings"></div>
   </div>
 </div>
 <script>
+// Data-freshness notice: the listings are only as current as the last full crawl.
+function showFreshness(f) {
+  const el = document.getElementById('data-notice');
+  if (!el || !f || !f.refreshed_at) return;
+  const d = new Date(f.refreshed_at + 'T00:00:00Z').toLocaleDateString('en-AU',
+    { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+  el.textContent = f.stale
+    ? 'Listings last refreshed ' + d + '. Some may have sold since, so always check the source listing.'
+    : 'Listings refreshed daily · last updated ' + d + '.';
+  el.className = 'data-notice' + (f.stale ? ' stale' : '');
+  el.hidden = false;
+}
+// Analytics events (Umami). No-op when analytics isn't configured.
+function track(name, data) {
+  try { if (window.umami) window.umami.track(name, data); } catch (e) {}
+}
 // Shown when a listing has no photo or its photo fails to load. Never a stock
 // photo: a picture that isn't the property misleads buyers.
 const NO_PHOTO = 'data:image/svg+xml,' + encodeURIComponent(
@@ -1043,6 +1064,7 @@ const PHOTO_FALLBACK = 'onerror="this.onerror=null;this.src=NO_PHOTO"';
 fetch('/api/listings')
   .then(r => r.json())
   .then(data => {
+    showFreshness(data.freshness);
     const listings = (data.listings || data).slice(0, 5);
     const grid = document.getElementById('homepage-listings');
     if (!grid || !listings.length) return;
@@ -1065,7 +1087,7 @@ fetch('/api/listings')
         + (l.size_m2 ? '<span class="tag">' + l.size_m2 + ' m²</span>' : '')
         + (l.is_free ? '<span class="tag green">Free transfer</span>' : '')
         + '</div>'
-        + '<div class="card-source"><span class="source-dot"></span> Source: ' + (l.source_name || 'akiya-athome.jp') + ' · Live data</div>'
+        + '<div class="card-source"><span class="source-dot"></span> Source: ' + (l.source_name || 'akiya-athome.jp') + '</div>'
         + '</div></div>';
     }).join('');
   });
