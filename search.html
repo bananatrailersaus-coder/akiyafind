@@ -316,9 +316,12 @@ async function doSearch(params) {
     showFreshness(data.freshness);
     currentPage = 1;
     const total = allListings.length;
+    const matched = typeof data.total === 'number' ? data.total : total;
     track('search', { prefecture: params.prefecture || 'all', keyword: params.q ? 'yes' : 'no',
-                      price_filter: (params.min_price || params.max_price) ? 'yes' : 'no', results: total });
-    countEl.innerHTML = '<strong>' + total + ' listing' + (total !== 1 ? 's' : '') + '</strong> found';
+                      price_filter: (params.min_price || params.max_price) ? 'yes' : 'no', results: matched });
+    countEl.innerHTML = matched > total
+      ? 'Showing <strong>' + total.toLocaleString() + '</strong> of ' + matched.toLocaleString() + ' listings · pick a prefecture or price to narrow down'
+      : '<strong>' + total.toLocaleString() + ' listing' + (total !== 1 ? 's' : '') + '</strong> found';
     renderPage();
   } catch(e) {
     grid.innerHTML = '<div class="empty-state"><div style="font-size:3rem">⚠️</div><h3>Error loading listings</h3><p>Please try again.</p></div>';
