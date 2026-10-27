@@ -136,7 +136,8 @@ def get_listings():
                is_free, lat, lng, image_url
         FROM listings WHERE delisted_at IS NULL
         -- Feature listings with a photo and a known price first; random within each group.
-        ORDER BY (image_url <> '' AND price_jpy IS NOT NULL) DESC, RANDOM() LIMIT 20
+        -- COALESCE: a NULL image_url makes the test NULL, and DESC sorts NULLs first.
+        ORDER BY COALESCE(image_url <> '' AND price_jpy IS NOT NULL, FALSE) DESC, RANDOM() LIMIT 20
     """)
     rows = cur.fetchall()
     cur.close()
