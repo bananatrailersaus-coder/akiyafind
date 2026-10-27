@@ -134,7 +134,9 @@ def get_listings():
     cur.execute("""
         SELECT title_en, prefecture, city, price_jpy, size_m2, source_name, source_url,
                is_free, lat, lng, image_url
-        FROM listings WHERE delisted_at IS NULL ORDER BY RANDOM() LIMIT 20
+        FROM listings WHERE delisted_at IS NULL
+        -- Feature listings with a photo and a known price first; random within each group.
+        ORDER BY (image_url <> '' AND price_jpy IS NOT NULL) DESC, RANDOM() LIMIT 20
     """)
     rows = cur.fetchall()
     cur.close()
@@ -346,6 +348,9 @@ def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price:
                FROM listings WHERE 1=1""" + where + " ORDER BY RANDOM() LIMIT 2000"
     cur.execute(query, params)
     rows = cur.fetchall()
+    # Results are capped at 2000, so report how many actually match.
+    cur.execute("SELECT COUNT(*) FROM listings WHERE 1=1" + where, params)
+    total = cur.fetchone()[0]
     cur.close()
     conn.close()
     listings = []
@@ -360,7 +365,7 @@ def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price:
             "is_free": row[7], "lat": row[8], "lng": row[9],
             "image_url": row[10] or "",
         })
-    return {"listings": listings, "freshness": data_freshness()}
+    return {"listings": listings, "total": total, "freshness": data_freshness()}
 
 # ---------------------------------------------------------------------------
 # Saved-search email alerts (sent daily by alerts.py after the crawl)

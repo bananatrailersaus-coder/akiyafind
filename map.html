@@ -373,14 +373,31 @@ const PHOTO_FALLBACK = 'onerror="this.onerror=null;this.src=NO_PHOTO"';
 // Init map centered on Japan
 const map = L.map('map', { zoomControl: false }).setView([36.5, 137.0], 5);
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-  attribution: '© OpenStreetMap © CARTO',
-  subdomains: 'abcd', maxZoom: 19
-}).addTo(map);
+// CARTO's light basemap, falling back to OpenStreetMap's own tiles if CARTO
+// won't load, so the map is never just markers on grey.
+const TILE_LAYERS = [
+  () => L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO', subdomains: 'abcd', maxZoom: 19 }),
+  () => L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors', maxZoom: 19 }),
+];
+function useTiles(i) {
+  const layer = TILE_LAYERS[i]();
+  let loaded = false, errors = 0;
+  layer.on('tileload', () => { loaded = true; });
+  layer.on('tileerror', () => {
+    if (loaded || ++errors < 4 || i + 1 >= TILE_LAYERS.length) return;
+    map.removeLayer(layer);
+    useTiles(i + 1);
+  });
+  layer.addTo(map);
+}
+useTiles(0);
 
 L.control.zoom({ position: 'topright' }).addTo(map);
 
 let allListings = [];
+let matchedTotal = 0;
 let markers = [];
 let markerCluster = L.markerClusterGroup({ maxClusterRadius: 40, spiderfyOnMaxZoom: true, showCoverageOnHover: false });
 map.addLayer(markerCluster);
@@ -479,7 +496,9 @@ function renderList(listings) {
     return;
   }
 
-  count.innerHTML = '<strong>' + listings.length + '</strong> listing' + (listings.length !== 1 ? 's' : '');
+  count.innerHTML = matchedTotal > listings.length
+    ? '<strong>' + listings.length.toLocaleString() + '</strong> of ' + matchedTotal.toLocaleString() + ' shown'
+    : '<strong>' + listings.length.toLocaleString() + '</strong> listing' + (listings.length !== 1 ? 's' : '');
 
   list.innerHTML = listings.map((l, i) => {
     const img = photoUrl(l);
@@ -538,6 +557,7 @@ async function loadListings(params) {
     const res = await fetch(url.toString());
     const data = await res.json();
     allListings = Array.isArray(data) ? data : (data.listings || []);
+    matchedTotal = typeof data.total === 'number' ? data.total : allListings.length;
     showFreshness(data.freshness);
     const sorted = sortListings(allListings, document.getElementById('sort-sel').value);
     renderList(sorted);
