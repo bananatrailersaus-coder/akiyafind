@@ -106,6 +106,8 @@
     border-bottom: 1px solid rgba(200,146,42,0.12);
     display: flex; justify-content: space-between; align-items: center;
   }
+  .data-notice { font-size: 0.8rem; color: #6b7a73; margin: 8px 16px; }
+  .data-notice.stale { background: #fff6e0; border: 1px solid #e8c77a; color: #6b4e0e; padding: 10px 14px; border-radius: 6px; }
   .sidebar-count { font-size: 0.78rem; color: var(--mist); }
   .sidebar-count strong { color: var(--ink); }
   .sort-sel {
@@ -304,6 +306,7 @@
       </select>
     </div>
 
+    <div class="data-notice" id="data-notice" hidden></div>
     <div class="listing-list" id="listing-list">
       <div class="list-loading"><div class="spinner"></div><p style="color:var(--mist);font-size:0.82rem">Loading listings…</p></div>
     </div>
@@ -339,6 +342,22 @@ const PREF_COORDS = {
   'Kagoshima': [31.560, 130.558], 'Okinawa': [26.212, 127.681],
 };
 
+// Data-freshness notice: the listings are only as current as the last full crawl.
+function showFreshness(f) {
+  const el = document.getElementById('data-notice');
+  if (!el || !f || !f.refreshed_at) return;
+  const d = new Date(f.refreshed_at + 'T00:00:00Z').toLocaleDateString('en-AU',
+    { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+  el.textContent = f.stale
+    ? 'Listings last refreshed ' + d + '. Some may have sold since, so always check the source listing.'
+    : 'Listings refreshed daily · last updated ' + d + '.';
+  el.className = 'data-notice' + (f.stale ? ' stale' : '');
+  el.hidden = false;
+}
+// Analytics events (Umami). No-op when analytics isn't configured.
+function track(name, data) {
+  try { if (window.umami) window.umami.track(name, data); } catch (e) {}
+}
 // Shown when a listing has no photo or its photo fails to load. Never a stock
 // photo: a picture that isn't the property misleads buyers.
 const NO_PHOTO = 'data:image/svg+xml,' + encodeURIComponent(
@@ -431,7 +450,7 @@ function makePopup(listing, index) {
         (size ? '<span class="popup-tag">' + size + '</span>' : '') +
         '<span class="popup-tag">' + listing.prefecture + '</span>' +
       '</div>' +
-      '<a class="popup-btn" href="' + href + '" target="_blank" rel="noopener">View listing →</a>' +
+      '<a class="popup-btn" href="' + href + '" target="_blank" rel="noopener" data-umami-event="listing-click" data-umami-event-prefecture="' + listing.prefecture + '" data-umami-event-page="map">View listing →</a>' +
     '</div></div>';
 }
 
@@ -519,6 +538,7 @@ async function loadListings(params) {
     const res = await fetch(url.toString());
     const data = await res.json();
     allListings = Array.isArray(data) ? data : (data.listings || []);
+    showFreshness(data.freshness);
     const sorted = sortListings(allListings, document.getElementById('sort-sel').value);
     renderList(sorted);
     renderMarkers(sorted);
