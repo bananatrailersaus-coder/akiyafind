@@ -124,7 +124,7 @@ def get_listings():
     cur.execute("""
         SELECT title_en, prefecture, city, price_jpy, size_m2, source_name, source_url,
                is_free, lat, lng, image_url
-        FROM listings ORDER BY RANDOM() LIMIT 20
+        FROM listings WHERE delisted_at IS NULL ORDER BY RANDOM() LIMIT 20
     """)
     rows = cur.fetchall()
     cur.close()
@@ -445,7 +445,7 @@ def unsubscribe(token: str = ""):
 def api_counts():
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT prefecture, COUNT(*) FROM listings GROUP BY prefecture")
+    cur.execute("SELECT prefecture, COUNT(*) FROM listings WHERE delisted_at IS NULL GROUP BY prefecture")
     rows = cur.fetchall()
     cur.close()
     conn.close()

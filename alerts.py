@@ -19,6 +19,8 @@ from urllib.parse import urlencode
 import psycopg2
 import requests
 
+from schema import ensure_listing_columns
+
 BASE_URL         = os.environ.get("BASE_URL") or "https://akiyafind.com"
 RESEND_API_KEY   = os.environ.get("RESEND_API_KEY")
 ALERT_FROM_EMAIL = os.environ.get("ALERT_FROM_EMAIL") or "AkiyaFind <alerts@akiyafind.com>"
@@ -31,9 +33,7 @@ MAX_LISTINGS_PER_EMAIL = 20
 
 
 def ensure_alert_schema(cur):
-    # created_at marks when the crawler first saw a listing; the upsert never
-    # overwrites it, so it is what "new listing" means for alerts.
-    cur.execute("ALTER TABLE IF EXISTS listings ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()")
+    ensure_listing_columns(cur)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS saved_searches (
             id              SERIAL PRIMARY KEY,
@@ -51,7 +51,7 @@ def ensure_alert_schema(cur):
 
 def listing_filter_sql(q="", prefecture="", min_price=0, max_price=0):
     """WHERE-clause fragment shared by /api/search and alerts so both match the same listings."""
-    sql, params = "", []
+    sql, params = " AND delisted_at IS NULL", []
     if q:
         sql += " AND (LOWER(city) LIKE %s OR LOWER(prefecture) LIKE %s OR LOWER(title_en) LIKE %s)"
         params += [f"%{q.lower()}%"] * 3

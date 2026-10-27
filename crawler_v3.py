@@ -18,6 +18,8 @@ from bs4 import BeautifulSoup
 import psycopg2
 import os, re, time, argparse
 
+from schema import ensure_listing_columns
+
 DATABASE_URL = os.environ.get('DATABASE_URL')
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL not set")
@@ -49,21 +51,65 @@ PREFECTURES = {
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
+# A complete crawl that sees fewer than this share of the previous complete
+# crawl's listings is treated as a broken crawl (blocked, layout change) and
+# marks nothing as delisted.
+MIN_SEEN_RATIO = 0.5
+
 def save_listing(cur, listing):
+    # Returns True only for a brand-new listing (xmax = 0 means INSERT, not UPDATE).
     cur.execute("""
         INSERT INTO listings
             (source_url, prefecture, city, title_jp, title_en,
-             price_jpy, size_m2, source_name, is_free, image_url)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             price_jpy, size_m2, source_name, is_free, image_url, last_seen_at, delisted_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW(), NULL)
         ON CONFLICT (source_url) DO UPDATE SET
-            image_url = EXCLUDED.image_url
+            image_url    = EXCLUDED.image_url,
+            price_jpy    = COALESCE(EXCLUDED.price_jpy, listings.price_jpy),
+            is_free      = COALESCE(COALESCE(EXCLUDED.price_jpy, listings.price_jpy) = 0, FALSE),
+            last_seen_at = NOW(),
+            delisted_at  = NULL
+        RETURNING (xmax = 0)
     """, (
         listing['source_url'], listing['prefecture'], listing['city'],
         listing['title_jp'], listing['title_en'], listing['price_jpy'],
         listing['size_m2'], listing['source_name'], listing['price_jpy'] == 0,
         listing.get('image_url', '')
     ))
-    return cur.rowcount == 1
+    return cur.fetchone()[0]
+
+def fetch_page(url, attempts=3):
+    """Returns the response, None for a 404 (past the last page), or raises after retries."""
+    for attempt in range(1, attempts + 1):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=30, verify=False)
+            if r.status_code == 404:
+                return None
+            r.raise_for_status()
+            return r
+        except Exception:
+            if attempt == attempts:
+                raise
+            time.sleep(5 * attempt)
+
+def mark_delisted(conn, pref_en, crawl_started, seen):
+    """After a complete crawl, hide listings in this prefecture that it didn't find."""
+    cur = conn.cursor()
+    cur.execute("""SELECT seen FROM crawl_log WHERE prefecture=%s AND complete
+                   ORDER BY finished_at DESC LIMIT 1""", (pref_en,))
+    prev = cur.fetchone()
+    if seen == 0 or (prev and seen < prev[0] * MIN_SEEN_RATIO):
+        print(f"  WARNING: saw {seen} listings (previous complete crawl: {prev[0] if prev else 'none'}) "
+              f"— looks broken, not marking anything delisted")
+        cur.close()
+        return 0, False
+    cur.execute("""UPDATE listings SET delisted_at = NOW()
+                   WHERE prefecture=%s AND delisted_at IS NULL AND last_seen_at < %s""",
+                (pref_en, crawl_started))
+    delisted = cur.rowcount
+    conn.commit()
+    cur.close()
+    return delisted, True
 
 def parse_price(text):
     if not text:
@@ -84,108 +130,118 @@ def parse_size(text):
     m = re.search(r'([\d.]+)\s*[㎡m²]', text)
     return float(m.group(1)) if m else None
 
+def parse_listings(html, pref_en):
+    """Parse one results page into listing dicts (no DB access)."""
+    soup = BeautifulSoup(html, 'html.parser')
+    listings = []
+    seen_urls = set()
+
+    # Pattern 1: links containing /bukken/detail/
+    detail_links = soup.find_all('a', href=re.compile(r'/bukken/detail/'))
+
+    # Pattern 2: links to subdomains (municipality sites)
+    if not detail_links:
+        detail_links = soup.find_all('a', href=re.compile(r'akiya-athome\.jp/bukken/'))
+
+    for a in detail_links:
+        href = a.get('href', '')
+        if not href:
+            continue
+
+        # Build full URL
+        if href.startswith('http'):
+            src_url = href
+        else:
+            src_url = 'https://www.akiya-athome.jp' + href
+
+        if src_url in seen_urls:
+            continue
+        seen_urls.add(src_url)
+
+        # Walk up to card container for data
+        card = a
+        for _ in range(5):
+            p = card.parent
+            if not p or p.name in ('body', 'html', '[document]'):
+                break
+            card = p
+
+        card_text = card.get_text(separator='\n', strip=True)
+        lines = [l for l in card_text.split('\n') if l.strip()]
+
+        title_jp = lines[0] if lines else ''
+
+        # City — try to extract from card text or URL
+        city = ''
+        city_match = re.search(r'[\u4e00-\u9fff]{2,8}[市町村区郡]', card_text)
+        if city_match:
+            city = city_match.group(0)
+
+        # Price
+        price_jpy = None
+        for line in lines:
+            if '万円' in line or '円' in line or '無料' in line or '贈与' in line:
+                price_jpy = parse_price(line)
+                break
+
+        # Size
+        size_m2 = None
+        for line in lines:
+            if '㎡' in line or 'm²' in line:
+                size_m2 = parse_size(line)
+                break
+
+        # Image
+        image_url = ''
+        img_div = card.find('div', class_='imageCenter')
+        if img_div:
+            img_tag = img_div.find('img')
+            if img_tag and img_tag.get('src'):
+                src = img_tag['src']
+                if src.startswith('//'):
+                    src = 'https:' + src
+                image_url = src
+
+        listings.append({
+            'source_url':  src_url,
+            'prefecture':  pref_en,
+            'city':        city,
+            'title_jp':    title_jp,
+            'title_en':    '',
+            'price_jpy':   price_jpy,
+            'size_m2':     size_m2,
+            'source_name': 'akiya-athome.jp',
+            'image_url':   image_url,
+        })
+    return listings
+
 def crawl_prefecture(code, pref_en, conn):
     cur = conn.cursor()
+    cur.execute("SELECT NOW()")
+    crawl_started = cur.fetchone()[0]
+    conn.commit()  # so later NOW() calls in save_listing are after crawl_started
+
     total_inserted = 0
     total_seen = 0
+    complete = False
     page = 1
 
     while True:
         url = f"https://www.akiya-athome.jp/buy/{code}/?page={page}"
         try:
-            r = requests.get(url, headers=HEADERS, timeout=30, verify=False)
-            if r.status_code == 404:
-                print(f"  404 on page {page} — done")
-                break
-            r.raise_for_status()
+            r = fetch_page(url)
         except Exception as e:
-            print(f"  ERROR page {page}: {e}")
+            print(f"  ERROR page {page}: {e} — crawl incomplete, nothing marked delisted")
+            break
+        if r is None:
+            print(f"  404 on page {page} — done")
+            complete = True
             break
 
-        soup = BeautifulSoup(r.text, 'html.parser')
-
-        # Find all listing anchors — try multiple patterns
-        listings_found = 0
-        seen_urls = set()
-
-        # Pattern 1: links containing /bukken/detail/
-        detail_links = soup.find_all('a', href=re.compile(r'/bukken/detail/'))
-
-        # Pattern 2: links to subdomains (municipality sites)
-        if not detail_links:
-            detail_links = soup.find_all('a', href=re.compile(r'akiya-athome\.jp/bukken/'))
-
-        for a in detail_links:
-            href = a.get('href', '')
-            if not href:
-                continue
-
-            # Build full URL
-            if href.startswith('http'):
-                src_url = href
-            else:
-                src_url = 'https://www.akiya-athome.jp' + href
-
-            if src_url in seen_urls:
-                continue
-            seen_urls.add(src_url)
-
-            # Walk up to card container for data
-            card = a
-            for _ in range(5):
-                p = card.parent
-                if not p or p.name in ('body', 'html', '[document]'):
-                    break
-                card = p
-
-            card_text = card.get_text(separator='\n', strip=True)
-            lines = [l for l in card_text.split('\n') if l.strip()]
-
-            title_jp = lines[0] if lines else ''
-
-            # City — try to extract from card text or URL
-            city = ''
-            city_match = re.search(r'[\u4e00-\u9fff]{2,8}[市町村区郡]', card_text)
-            if city_match:
-                city = city_match.group(0)
-
-            # Price
-            price_jpy = None
-            for line in lines:
-                if '万円' in line or '円' in line or '無料' in line or '贈与' in line:
-                    price_jpy = parse_price(line)
-                    break
-
-            # Size
-            size_m2 = None
-            for line in lines:
-                if '㎡' in line or 'm²' in line:
-                    size_m2 = parse_size(line)
-                    break
-# Image
-            image_url = ''
-            img_div = card.find('div', class_='imageCenter')
-            if img_div:
-                img_tag = img_div.find('img')
-                if img_tag and img_tag.get('src'):
-                    src = img_tag['src']
-                    if src.startswith('//'):
-                        src = 'https:' + src
-                    image_url = src
-            listing = {
-                'source_url':  src_url,
-                'prefecture':  pref_en,
-                'city':        city,
-                'title_jp':    title_jp,
-                'title_en':    '',
-                'price_jpy':   price_jpy,
-                'size_m2':     size_m2,
-                'source_name': 'akiya-athome.jp'
-                ,'image_url':   image_url, 
-            }
-
+        listings = parse_listings(r.text, pref_en)
+        listings_found = len(listings)
+        for listing in listings:
             total_seen += 1
-            listings_found += 1
             if save_listing(cur, listing):
                 total_inserted += 1
 
@@ -194,18 +250,31 @@ def crawl_prefecture(code, pref_en, conn):
 
         # THE KEY FIX: stop when page returns 0 listings, not when next-link disappears
         if listings_found == 0:
+            complete = True
             break
 
         page += 1
         time.sleep(1.5)
 
+    delisted = 0
+    if complete:
+        delisted, complete = mark_delisted(conn, pref_en, crawl_started, total_seen)
+    cur.execute("""INSERT INTO crawl_log (prefecture, started_at, complete, seen, delisted)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (pref_en, crawl_started, complete, total_seen, delisted))
+    conn.commit()
     cur.close()
-    return total_seen, total_inserted
+    return total_seen, total_inserted, delisted
 
 def main(pref_filter=None, start_from=0):
     conn = get_db()
+    cur = conn.cursor()
+    ensure_listing_columns(cur)
+    conn.commit()
+    cur.close()
     grand_total_seen = 0
     grand_total_inserted = 0
+    grand_total_delisted = 0
 
     pref_items = list(PREFECTURES.items())[start_from:]
     if pref_filter:
@@ -215,14 +284,15 @@ def main(pref_filter=None, start_from=0):
         print(f"\n{'='*50}")
         print(f"  {pref_en} (code={code})")
         print(f"{'='*50}")
-        seen, inserted = crawl_prefecture(code, pref_en, conn)
+        seen, inserted, delisted = crawl_prefecture(code, pref_en, conn)
         grand_total_seen += seen
         grand_total_inserted += inserted
-        print(f"  → {seen} seen, {inserted} new | running total inserted: {grand_total_inserted}")
+        grand_total_delisted += delisted
+        print(f"  → {seen} seen, {inserted} new, {delisted} delisted | running total inserted: {grand_total_inserted}")
 
     conn.close()
     print(f"\n{'='*50}")
-    print(f"DONE — seen: {grand_total_seen} | inserted: {grand_total_inserted}")
+    print(f"DONE — seen: {grand_total_seen} | inserted: {grand_total_inserted} | delisted: {grand_total_delisted}")
     print(f"{'='*50}")
 
 if __name__ == '__main__':
