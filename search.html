@@ -108,8 +108,7 @@
   <ul>
     <li><a href="/search">Browse</a></li>
     <li><a href="/#regions">Regions</a></li>
-    <li><a href="/#pricing">Pricing</a></li>
-    <li><a href="#" class="nav-cta">Start Free</a></li>
+    <li><a href="/account" class="nav-cta">My Alerts</a></li>
   </ul>
 </nav>
 
@@ -145,6 +144,8 @@
     </select>
     <button class="filter-btn" id="apply-filters">Apply</button>
     <button class="filter-clear" id="clear-filters">Clear all</button>
+    <button class="filter-btn" id="save-alert" style="margin-left:auto;">🔔 Email me new matches</button>
+    <span class="results-count" id="save-alert-msg"></span>
   </div>
 </div>
 
@@ -165,15 +166,17 @@
 </div>
 
 <script>
-const IMAGES = [
-  'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=600&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=600&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1490806843957-31f4c9a91c65?w=600&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1480796927426-f609979314bd?w=600&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1542051841857-5f90071e7989?w=600&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1431274172761-fca41d930114?w=600&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1524413840807-0c3cb6fa808d?w=600&auto=format&fit=crop',
-];
+// Shown when a listing has no photo or its photo fails to load. Never a stock
+// photo: a picture that isn't the property misleads buyers.
+const NO_PHOTO = 'data:image/svg+xml,' + encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 400'>" +
+  "<rect width='600' height='400' fill='#ede8de'/>" +
+  "<path d='M255 222 L300 182 L345 222 V262 H255 Z' fill='none' stroke='#a8b8b0' stroke-width='6' stroke-linejoin='round'/>" +
+  "<text x='300' y='310' text-anchor='middle' font-family='sans-serif' font-size='22' fill='#7d8a84'>No photo available</text></svg>");
+function photoUrl(l) {
+  return l.image_url ? '/api/img?url=' + encodeURIComponent(l.image_url) : NO_PHOTO;
+}
+const PHOTO_FALLBACK = 'onerror="this.onerror=null;this.src=NO_PHOTO"';
 
 let allListings = [];
 let currentPage = 1;
@@ -199,10 +202,11 @@ function buildApiUrl(params) {
 }
 
 function renderCard(listing, index) {
-  const img = listing.image_url ? '/api/img?url=' + encodeURIComponent(listing.image_url) : IMAGES[index % IMAGES.length];
+  const img = photoUrl(listing);
   const isFree = listing.price_jpy === 0;
-  const aud = isFree ? 'FREE' : 'AUD $' + Math.round(listing.price_aud).toLocaleString();
-  const jpy = isFree ? '¥0 — Free transfer' : '¥' + listing.price_jpy.toLocaleString() + ' JPY';
+  const noPrice = listing.price_jpy == null;
+  const aud = isFree ? 'FREE' : noPrice ? 'Price on request' : 'AUD $' + Math.round(listing.price_aud).toLocaleString();
+  const jpy = isFree ? '¥0 — Free transfer' : noPrice ? 'See listing for price' : '¥' + listing.price_jpy.toLocaleString() + ' JPY';
   const city = (listing.city || listing.prefecture || '').substring(0, 35);
   const size = listing.size_m2 > 0 ? listing.size_m2 + ' m²' : '';
   const href = listing.source_url || '#';
@@ -210,7 +214,7 @@ function renderCard(listing, index) {
 
   return `<a class="result-card" href="${href}" target="_blank" rel="noopener">
     <div class="card-img-wrap">
-      <img src="${img}" alt="Property in ${listing.prefecture}" loading="lazy">
+      <img src="${img}" alt="Property in ${listing.prefecture}" loading="lazy" ${PHOTO_FALLBACK}>
       <span class="card-badge ${isFree ? 'free' : ''}">${isFree ? 'Free Transfer' : 'Akiya'}</span>
     </div>
     <div class="card-body">
@@ -229,8 +233,10 @@ function renderCard(listing, index) {
 
 function sortListings(listings, sortBy) {
   const arr = [...listings];
-  if (sortBy === 'price-asc') arr.sort((a, b) => a.price_jpy - b.price_jpy);
-  else if (sortBy === 'price-desc') arr.sort((a, b) => b.price_jpy - a.price_jpy);
+  // Listings with an unknown price go last either way.
+  const byPrice = dir => (a, b) => (a.price_jpy == null) - (b.price_jpy == null) || dir * (a.price_jpy - b.price_jpy);
+  if (sortBy === 'price-asc') arr.sort(byPrice(1));
+  else if (sortBy === 'price-desc') arr.sort(byPrice(-1));
   else if (sortBy === 'size-desc') arr.sort((a, b) => b.size_m2 - a.size_m2);
   return arr;
 }
@@ -328,6 +334,31 @@ document.getElementById('clear-filters').addEventListener('click', () => {
   document.getElementById('filter-max-price').value = '0';
   window.history.pushState({}, '', '/search');
   doSearch({q:'', prefecture:'', min_price:0, max_price:0});
+});
+
+function currentFilters() {
+  return {
+    q: document.getElementById('search-input').value.trim(),
+    prefecture: document.getElementById('filter-prefecture').value,
+    min_price: parseInt(document.getElementById('filter-min-price').value || '0'),
+    max_price: parseInt(document.getElementById('filter-max-price').value || '0'),
+  };
+}
+
+document.getElementById('save-alert').addEventListener('click', async () => {
+  const msg = document.getElementById('save-alert-msg');
+  const res = await fetch('/api/alerts', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(currentFilters()),
+  });
+  if (res.status === 401) { window.location = '/auth/login'; return; }
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) {
+    msg.innerHTML = 'Saved. You\'ll get a daily email when new listings match. <a href="/account">Manage alerts</a>';
+  } else {
+    msg.textContent = data.detail || 'Could not save this alert.';
+  }
 });
 
 document.getElementById('sort-select').addEventListener('change', () => {

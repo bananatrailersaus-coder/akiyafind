@@ -36,6 +36,10 @@
   .plan-card ul { list-style: none; margin: 12px 0 20px; font-size: 0.85rem; color: #555; }
   .plan-card ul li { padding: 3px 0; }
   .plan-card ul li:before { content: "✓ "; color: #2d7a2d; }
+  .alert-list { list-style: none; margin: 16px 0 8px; }
+  .alert-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f0ece6; font-size: 0.95rem; }
+  .alert-list button { background: none; border: none; color: #c84b2f; cursor: pointer; font-size: 0.85rem; }
+  .muted { color: #888; font-size: 0.9rem; }
   .success-banner { background: #e8f4e8; border: 1px solid #2d7a2d; border-radius: 8px; padding: 16px 20px; margin-bottom: 24px; color: #2d7a2d; font-weight: 500; display: none; }
   @media (max-width: 600px) { .upgrade-grid { grid-template-columns: 1fr; } }
 </style>
@@ -64,42 +68,65 @@
     <div id="action-buttons"></div>
   </div>
 
+  <div class="card" id="alerts-card">
+    <h2 style="margin-bottom:4px;">Your email alerts</h2>
+    <p class="muted" id="alerts-summary">Loading…</p>
+    <ul class="alert-list" id="alert-list"></ul>
+    <p class="muted">To add one, run a search and click <strong>Email me new matches</strong>. Alerts are sent once a day after listings refresh.</p>
+  </div>
+
   <div class="card" id="upgrade-card" style="display:none;">
     <h2 style="margin-bottom:8px;">Upgrade your plan</h2>
-    <p style="color:#888;font-size:0.9rem;margin-bottom:20px;">Unlock full listing details, email alerts, and more.</p>
-    <div class="upgrade-grid">
-      <div class="plan-card">
-        <h3>Searcher</h3>
-        <div class="price">$4<span>/mo AUD</span></div>
-        <ul>
-          <li>Full listing details</li>
-          <li>Source URL & agent contacts</li>
-          <li>Email alerts</li>
-          <li>Unlimited saved searches</li>
-        </ul>
-        <button class="btn btn-primary" onclick="checkout('searcher')" style="width:100%;">Upgrade — $4/mo</button>
-      </div>
-      <div class="plan-card" style="border-color:#c84b2f;">
-        <h3>Buyer <span style="font-size:0.7rem;background:#c84b2f;color:white;padding:2px 8px;border-radius:10px;">Popular</span></h3>
-        <div class="price">$12<span>/mo AUD</span></div>
-        <ul>
-          <li>Everything in Searcher</li>
-          <li>Hazard maps</li>
-          <li>Renovation subsidy lookup</li>
-          <li>Concierge support</li>
-        </ul>
-        <button class="btn btn-primary" onclick="checkout('buyer')" style="width:100%;">Upgrade — $12/mo</button>
-      </div>
+    <p style="color:#888;font-size:0.9rem;margin-bottom:20px;">Get daily email alerts for more of your searches.</p>
+    <div class="plan-card">
+      <h3>Searcher</h3>
+      <div class="price">$4<span>/mo AUD</span></div>
+      <ul>
+        <li>Up to 10 saved-search email alerts</li>
+        <li>Everything in Free</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkout('searcher')" style="width:100%;">Upgrade — $4/mo</button>
     </div>
   </div>
 </div>
 
 <script>
 const FEATURES = {
-  free: ["Browse all 10,000+ listings", "Map with clustering", "Basic search & filters", "3 saved searches"],
-  searcher: ["Everything in Free", "Full listing details & source URLs", "Agent contact information", "Email alerts for new matches", "Unlimited saved searches"],
-  buyer: ["Everything in Searcher", "Hazard maps", "Renovation subsidy lookup", "Concierge support"]
+  free: ["Browse all listings", "Map view", "Search & filters", "1 daily email alert"],
+  searcher: ["Everything in Free", "Up to 10 daily email alerts"],
 };
+FEATURES.buyer = FEATURES.searcher;
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function describeAlert(a) {
+  const parts = [];
+  if (a.q) parts.push(`"${a.q}"`);
+  parts.push(a.prefecture || "All prefectures");
+  if (a.min_price && a.max_price) parts.push(`¥${a.min_price.toLocaleString()}–¥${a.max_price.toLocaleString()}`);
+  else if (a.min_price) parts.push(`¥${a.min_price.toLocaleString()}+`);
+  else if (a.max_price) parts.push(`under ¥${a.max_price.toLocaleString()}`);
+  return parts.join(", ");
+}
+
+async function loadAlerts() {
+  const res = await fetch("/api/alerts");
+  if (!res.ok) return;
+  const data = await res.json();
+  const n = data.alerts.length;
+  document.getElementById("alerts-summary").textContent =
+    `${n} of ${data.limit} alert${data.limit !== 1 ? "s" : ""} used.`;
+  document.getElementById("alert-list").innerHTML = data.alerts.map(a =>
+    `<li><span>${escapeHtml(describeAlert(a))}</span><button onclick="deleteAlert(${a.id})">Remove</button></li>`
+  ).join("");
+}
+
+async function deleteAlert(id) {
+  await fetch(`/api/alerts/${id}`, {method: "DELETE"});
+  loadAlerts();
+}
 
 async function loadUser() {
   const params = new URLSearchParams(window.location.search);
@@ -129,13 +156,14 @@ async function loadUser() {
 
   const actions = document.getElementById("action-buttons");
   if (u.tier === "free") {
-    document.getElementById("upgrade-card").style.display = "block";
+    if (data.payments_enabled) document.getElementById("upgrade-card").style.display = "block";
     actions.innerHTML = `<a href="/search" class="btn btn-secondary">Browse listings</a>`;
   } else {
     actions.innerHTML = `
       <a href="/search" class="btn btn-primary">Browse listings</a>
       <button class="btn btn-secondary" onclick="manageSubscription()">Manage subscription</button>`;
   }
+  loadAlerts();
 }
 
 async function checkout(plan) {
