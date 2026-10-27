@@ -28,10 +28,13 @@ jobs:
       - name: Run crawler
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Scheduled runs have no inputs, so fall back to the dispatch defaults.
+          PREFECTURES: ${{ github.event.inputs.prefectures || '' }}
+          START_FROM: ${{ github.event.inputs.start_from || '0' }}
         run: |
           ARGS=""
-          [ -n "${{ github.event.inputs.prefectures }}" ] && ARGS="--prefectures ${{ github.event.inputs.prefectures }}"
-          [ "${{ github.event.inputs.start_from }}" != "0" ] && ARGS="$ARGS --start-from ${{ github.event.inputs.start_from }}"
+          if [ -n "$PREFECTURES" ]; then ARGS="--prefectures $PREFECTURES"; fi
+          if [ "$START_FROM" != "0" ]; then ARGS="$ARGS --start-from $START_FROM"; fi
           python3 crawler_v3.py $ARGS
 
       - name: Send saved-search email alerts
