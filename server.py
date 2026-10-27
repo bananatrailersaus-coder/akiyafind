@@ -131,8 +131,8 @@ def get_listings():
     conn.close()
     listings = []
     for row in rows:
-        price_jpy = row[3] or 0
-        price_aud = round(price_jpy * 0.0091) if price_jpy else 0
+        price_jpy = row[3]  # None = price unknown; 0 = genuinely free
+        price_aud = round(price_jpy * 0.0091) if price_jpy is not None else None
         listings.append({
             "title": row[0] or "Vacant Property",
             "prefecture": row[1],
@@ -323,8 +323,8 @@ def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price:
     conn.close()
     listings = []
     for row in rows:
-        price_jpy = row[3] or 0
-        price_aud = round(price_jpy * 0.0091) if price_jpy else 0
+        price_jpy = row[3]  # None = price unknown; 0 = genuinely free
+        price_aud = round(price_jpy * 0.0091) if price_jpy is not None else None
         listings.append({
             "title": row[0] or "Vacant Property",
             "prefecture": row[1], "city": row[2],
@@ -495,10 +495,19 @@ async def image_proxy(url: str, request: Request):
         return Response(content=b'', status_code=400)
     try:
         async with httpx.AsyncClient() as client:
-            r = await client.get(url, headers={
-                "Referer": "https://www.akiya-athome.jp/",
-                "User-Agent": "Mozilla/5.0"
-            }, follow_redirects=False, timeout=10)
+            # Follow redirects by hand so every hop is re-checked against the allowlist.
+            for _ in range(4):
+                r = await client.get(url, headers={
+                    "Referer": "https://www.akiya-athome.jp/",
+                    "User-Agent": "Mozilla/5.0"
+                }, follow_redirects=False, timeout=10)
+                if not r.is_redirect:
+                    break
+                url = str(r.url.join(r.headers.get("location", "")))
+                if not _is_allowed_img_url(url):
+                    return Response(content=b'', status_code=404)
+            else:
+                return Response(content=b'', status_code=404)
         content_type = r.headers.get("content-type", "")
         if r.status_code != 200 or not content_type.startswith("image/"):
             return Response(content=b'', status_code=404)

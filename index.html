@@ -1023,34 +1023,39 @@
       <small>Latest Properties</small>
       Featured Listings
     </div>
-    <a href="#" class="view-all">View all listings →</a>
+    <a href="/search" class="view-all">View all listings →</a>
   </div>
   <div class="listings-grid" id="homepage-listings"></div>
   </div>
 </div>
 <script>
+// Shown when a listing has no photo or its photo fails to load. Never a stock
+// photo: a picture that isn't the property misleads buyers.
+const NO_PHOTO = 'data:image/svg+xml,' + encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 400'>" +
+  "<rect width='600' height='400' fill='#ede8de'/>" +
+  "<path d='M255 222 L300 182 L345 222 V262 H255 Z' fill='none' stroke='#a8b8b0' stroke-width='6' stroke-linejoin='round'/>" +
+  "<text x='300' y='310' text-anchor='middle' font-family='sans-serif' font-size='22' fill='#7d8a84'>No photo available</text></svg>");
+function photoUrl(l) {
+  return l.image_url ? '/api/img?url=' + encodeURIComponent(l.image_url) : NO_PHOTO;
+}
+const PHOTO_FALLBACK = 'onerror="this.onerror=null;this.src=NO_PHOTO"';
 fetch('/api/listings')
   .then(r => r.json())
   .then(data => {
     const listings = (data.listings || data).slice(0, 5);
     const grid = document.getElementById('homepage-listings');
     if (!grid || !listings.length) return;
-    const FALLBACK = [
-      'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=800&auto=format&fit=crop',
-      'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=600&auto=format&fit=crop',
-      'https://images.unsplash.com/photo-1490806843957-31f4c9a91c65?w=600&auto=format&fit=crop',
-      'https://images.unsplash.com/photo-1480796927426-f609979314bd?w=600&auto=format&fit=crop',
-      'https://images.unsplash.com/photo-1542051841857-5f90071e7989?w=600&auto=format&fit=crop',
-    ];
     grid.innerHTML = listings.map((l, i) => {
-      const img = l.image_url ? '/api/img?url=' + encodeURIComponent(l.image_url) : FALLBACK[i % FALLBACK.length];
-      const aud = l.price_jpy === 0 ? 'FREE' : 'AUD $' + Math.round(l.price_jpy * 0.0091).toLocaleString();
-      const jpy = l.price_jpy === 0 ? '¥0 — Free transfer' : '¥' + l.price_jpy.toLocaleString() + ' JPY';
+      const img = photoUrl(l);
+      const noPrice = l.price_jpy == null;
+      const aud = l.price_jpy === 0 ? 'FREE' : noPrice ? 'Price on request' : 'AUD $' + Math.round(l.price_jpy * 0.0091).toLocaleString();
+      const jpy = l.price_jpy === 0 ? '¥0 — Free transfer' : noPrice ? 'See listing for price' : '¥' + l.price_jpy.toLocaleString() + ' JPY';
       const city = (l.city || '').substring(0, 35);
       const featured = i === 0 ? ' featured' : '';
       const delay = i > 0 ? ' style="animation-delay:' + (i*0.05) + 's"' : '';
       return '<div class="listing-card' + featured + ' reveal visible"' + delay + '>'
-        + '<img class="card-img" src="' + img + '" alt="Property in ' + l.prefecture + '" loading="lazy">'
+        + '<img class="card-img" src="' + img + '" alt="Property in ' + l.prefecture + '" loading="lazy" ' + PHOTO_FALLBACK + '>'
         + '<div class="card-body">'
         + '<div class="card-prefecture"><span class="source-dot"></span> ' + l.prefecture + ' · ' + city + '</div>'
         + '<div class="card-title">Vacant Property · ' + l.prefecture + '</div>'

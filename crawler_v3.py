@@ -130,6 +130,54 @@ def parse_size(text):
     m = re.search(r'([\d.]+)\s*[㎡m²]', text)
     return float(m.group(1)) if m else None
 
+SITE = 'https://www.akiya-athome.jp'
+
+# Placeholder / lazy-load images that must never be shown as a listing's photo.
+NOT_A_PHOTO = re.compile(
+    r'(?<![a-z])(no[_-]?(image|img|photo)|noimg|spacer|dummy)|(?<![a-z])(blank|loading)\.(gif|png|svg)|(?<!\d)1x1(?!\d)',
+    re.I)
+
+def absolute_url(u):
+    u = (u or '').strip()
+    if not u or u.startswith('data:'):
+        return ''
+    if u.startswith('//'):
+        return 'https:' + u
+    if u.startswith('/'):
+        return SITE + u
+    return u
+
+def listing_key(href):
+    """Same listing regardless of query string or fragment."""
+    return absolute_url(href).split('#')[0].split('?')[0]
+
+def image_src(img):
+    """The real photo URL of an <img>, preferring lazy-load attributes over the placeholder src."""
+    for attr in ('data-src', 'data-original', 'data-lazy-src', 'data-lazy'):
+        u = absolute_url(img.get(attr))
+        if u:
+            return u
+    srcset = img.get('data-srcset') or img.get('srcset')
+    if srcset:
+        # Candidates are "url 320w, url 640w"; the last is conventionally the largest.
+        u = absolute_url(srcset.split(',')[-1].strip().split(' ')[0])
+        if u:
+            return u
+    return absolute_url(img.get('src'))
+
+def pick_photo(card, link_re):
+    # The source site's thumbnail container first, then any image linked to the listing.
+    candidates = []
+    for div in card.find_all('div', class_='imageCenter'):
+        candidates += div.find_all('img')
+    for a in card.find_all('a', href=link_re):
+        candidates += a.find_all('img')
+    for img in candidates:
+        u = image_src(img)
+        if u and not NOT_A_PHOTO.search(u):
+            return u
+    return ''
+
 def parse_listings(html, pref_en):
     """Parse one results page into listing dicts (no DB access)."""
     soup = BeautifulSoup(html, 'html.parser')
@@ -137,11 +185,13 @@ def parse_listings(html, pref_en):
     seen_urls = set()
 
     # Pattern 1: links containing /bukken/detail/
-    detail_links = soup.find_all('a', href=re.compile(r'/bukken/detail/'))
+    link_re = re.compile(r'/bukken/detail/')
+    detail_links = soup.find_all('a', href=link_re)
 
     # Pattern 2: links to subdomains (municipality sites)
     if not detail_links:
-        detail_links = soup.find_all('a', href=re.compile(r'akiya-athome\.jp/bukken/'))
+        link_re = re.compile(r'akiya-athome\.jp/bukken/')
+        detail_links = soup.find_all('a', href=link_re)
 
     for a in detail_links:
         href = a.get('href', '')
@@ -154,15 +204,22 @@ def parse_listings(html, pref_en):
         else:
             src_url = 'https://www.akiya-athome.jp' + href
 
-        if src_url in seen_urls:
+        # One row per listing even when its card links to it more than once
+        # (e.g. photo link and "?tab=map" link); the first link's URL is stored.
+        key = listing_key(href)
+        if key in seen_urls:
             continue
-        seen_urls.add(src_url)
+        seen_urls.add(key)
 
-        # Walk up to card container for data
+        # Walk up to the largest container that holds only this listing. A fixed
+        # number of levels can overshoot into the list itself, and then every
+        # listing on the page picks up the first card's photo, title and price.
         card = a
-        for _ in range(5):
+        while True:
             p = card.parent
             if not p or p.name in ('body', 'html', '[document]'):
+                break
+            if any(listing_key(x.get('href')) != key for x in p.find_all('a', href=link_re)):
                 break
             card = p
 
@@ -191,16 +248,7 @@ def parse_listings(html, pref_en):
                 size_m2 = parse_size(line)
                 break
 
-        # Image
-        image_url = ''
-        img_div = card.find('div', class_='imageCenter')
-        if img_div:
-            img_tag = img_div.find('img')
-            if img_tag and img_tag.get('src'):
-                src = img_tag['src']
-                if src.startswith('//'):
-                    src = 'https:' + src
-                image_url = src
+        image_url = pick_photo(card, link_re)
 
         listings.append({
             'source_url':  src_url,
