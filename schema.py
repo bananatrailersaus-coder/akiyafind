@@ -8,11 +8,13 @@ after a deploy. Every statement is idempotent.
 # column -> type. created_at: when the crawler first saw a listing (never
 # overwritten) — "new" for alerts. last_seen_at: last crawl that found it on the
 # source site. delisted_at: set when a complete crawl of its prefecture no
-# longer finds it.
+# longer finds it. agent_listing_id: set for listings agents submitted directly
+# (agents.py); the crawler must never delist those.
 LISTING_COLUMNS = {
-    "created_at":   "TIMESTAMPTZ DEFAULT NOW()",
-    "last_seen_at": "TIMESTAMPTZ DEFAULT NOW()",
-    "delisted_at":  "TIMESTAMPTZ",
+    "created_at":       "TIMESTAMPTZ DEFAULT NOW()",
+    "last_seen_at":     "TIMESTAMPTZ DEFAULT NOW()",
+    "delisted_at":      "TIMESTAMPTZ",
+    "agent_listing_id": "INTEGER",
 }
 
 

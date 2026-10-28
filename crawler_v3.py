@@ -137,8 +137,10 @@ def mark_delisted(conn, pref_en, crawl_started, seen):
               f"— looks broken, not marking anything delisted")
         cur.close()
         return 0, False
+    # agent_listing_id IS NULL: agent-submitted listings aren't on the source site, so never delist them here
     cur.execute("""UPDATE listings SET delisted_at = NOW()
-                   WHERE prefecture=%s AND delisted_at IS NULL AND last_seen_at < %s""",
+                   WHERE prefecture=%s AND delisted_at IS NULL AND last_seen_at < %s
+                     AND agent_listing_id IS NULL""",
                 (pref_en, crawl_started))
     delisted = cur.rowcount
     conn.commit()

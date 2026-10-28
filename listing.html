@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Property — AkiyaFind</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #1a1208; --rice: #f7f3ec; --cream: #ede8de; --vermillion: #c94a2a; --gold: #c8922a; --moss: #3d5a3e; --mist: #6b7a73; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'DM Sans', Arial, sans-serif; background: var(--rice); color: var(--ink); line-height: 1.6; }
+  nav { display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; background: #fff; border-bottom: 1px solid #e8e0d5; }
+  .logo { font-family: 'Shippori Mincho', serif; font-size: 1.35rem; font-weight: 800; color: var(--ink); text-decoration: none; }
+  .logo sup { color: var(--gold); font-size: 0.5em; }
+  nav a.back { color: var(--mist); text-decoration: none; font-size: 0.9rem; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 56px; }
+  .preview { background: #fff3d6; border: 1px solid #e8c77a; color: #6b4e0e; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9rem; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+  .main-photo { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; background: var(--cream); display: block; }
+  .thumbs { display: flex; gap: 8px; margin-top: 8px; overflow-x: auto; padding-bottom: 4px; }
+  .thumbs img { width: 84px; height: 63px; object-fit: cover; border-radius: 6px; cursor: pointer; opacity: 0.7; border: 2px solid transparent; flex: none; }
+  .thumbs img.active { opacity: 1; border-color: var(--vermillion); }
+  h1 { font-family: 'Shippori Mincho', serif; font-size: clamp(1.5rem, 3.5vw, 2.1rem); margin: 0 0 4px; line-height: 1.25; }
+  .where { color: var(--mist); margin-bottom: 14px; }
+  .price { font-family: 'Shippori Mincho', serif; font-size: 1.8rem; font-weight: 800; color: var(--vermillion); }
+  .price-sub { color: var(--mist); font-size: 0.88rem; margin-bottom: 18px; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 22px; }
+  .fact { background: #fff; border-radius: 8px; padding: 10px 12px; }
+  .fact span { display: block; color: var(--mist); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+  .desc { white-space: pre-wrap; background: #fff; border-radius: 10px; padding: 20px; margin-top: 22px; }
+  .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+  .card h2 { font-family: 'Shippori Mincho', serif; font-size: 1.15rem; margin: 0 0 10px; }
+  .agent-meta { color: var(--mist); font-size: 0.88rem; }
+  label { display: block; font-size: 0.85rem; font-weight: 600; margin: 10px 0 4px; }
+  input, textarea { width: 100%; padding: 9px 11px; border: 1px solid #d8cfc2; border-radius: 6px; font: inherit; }
+  textarea { min-height: 120px; resize: vertical; }
+  .hp { position: absolute; left: -9999px; }
+  .btn { display: inline-block; background: var(--vermillion); color: #fff; border: none; border-radius: 6px; padding: 11px 22px; font: inherit; font-weight: 600; cursor: pointer; margin-top: 12px; width: 100%; }
+  .btn:disabled { opacity: 0.6; }
+  .msg { margin-top: 10px; font-size: 0.9rem; }
+  .msg.ok { color: var(--moss); }
+  .msg.err { color: var(--vermillion); }
+  .small { font-size: 0.8rem; color: var(--mist); }
+  .missing { text-align: center; padding: 80px 16px; }
+  @media (max-width: 820px) { .layout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<nav>
+  <a href="/" class="logo">AkiyaFind<sup>空き家</sup></a>
+  <a href="/search" class="back">← Back to search</a>
+</nav>
+<main id="main"><p class="small">Loading…</p></main>
+
+<script>
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null) e.append(k);
+  return e;
+}
+function track(name, data) { try { if (window.umami) window.umami.track(name, data); } catch (e) {} }
+const id = location.pathname.split('/').filter(Boolean).pop();
+const main = document.getElementById('main');
+
+function fact(label, value) { return value == null || value === '' ? null : el('div', { class: 'fact' }, el('span', {}, label), String(value)); }
+
+function render(l) {
+  document.title = l.title + ' — AkiyaFind';
+  const isFree = l.price_jpy === 0, noPrice = l.price_jpy == null;
+  const price = isFree ? 'FREE' : noPrice ? 'Price on request' : '¥' + Number(l.price_jpy).toLocaleString();
+  const priceSub = isFree ? 'Free transfer' : noPrice ? 'Ask the agent for the price'
+    : 'about AUD $' + Math.round(l.price_jpy * 0.0091).toLocaleString() + ' (approximate)';
+
+  const mainPhoto = el('img', { class: 'main-photo', src: l.photo_urls[0] || '', alt: l.title });
+  const thumbs = el('div', { class: 'thumbs' }, l.photo_urls.map((u, i) => {
+    const t = el('img', { src: u, alt: 'Photo ' + (i + 1), class: i === 0 ? 'active' : '' });
+    t.addEventListener('click', () => { mainPhoto.src = u; thumbs.querySelectorAll('img').forEach(x => x.classList.remove('active')); t.classList.add('active'); });
+    return t;
+  }));
+
+  const form = el('form', {},
+    el('label', {}, 'Your name'), el('input', { name: 'name', required: '', maxlength: '100' }),
+    el('label', {}, 'Your email'), el('input', { name: 'email', type: 'email', required: '', maxlength: '200' }),
+    el('label', {}, 'Message'), el('textarea', { name: 'message', required: '', maxlength: '3000' }),
+    el('input', { name: 'website', class: 'hp', tabindex: '-1', autocomplete: 'off', 'aria-hidden': 'true' }),
+    el('button', { class: 'btn', type: 'submit' }, 'Send enquiry'),
+    el('div', { class: 'msg' }),
+    el('p', { class: 'small' }, 'Your name, email and message go to this agent so they can reply. See our ', el('a', { href: '/privacy' }, 'privacy policy'), '.'));
+  form.elements.message.value = 'Hello, I\'m interested in "' + l.title + '". Is it still available, and could you tell me more?';
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const msg = form.querySelector('.msg'), btn = form.querySelector('button');
+    btn.disabled = true; msg.className = 'msg'; msg.textContent = 'Sending…';
+    try {
+      const res = await fetch('/api/listing/' + id + '/enquire', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Could not send. Please try again.');
+      msg.className = 'msg ok'; msg.textContent = 'Sent. The agent will reply to your email.';
+      track('enquiry-sent', { prefecture: l.prefecture });
+      form.reset();
+    } catch (err) { msg.className = 'msg err'; msg.textContent = err.message; btn.disabled = false; }
+  });
+
+  const a = l.agent;
+  main.replaceChildren(
+    l.status !== 'approved' ? el('div', { class: 'preview' }, 'Preview — only you can see this. Status: ' + l.status + '.') : '',
+    el('div', { class: 'layout' },
+      el('div', {}, mainPhoto, l.photo_urls.length > 1 ? thumbs : '', l.description ? el('div', { class: 'desc' }, l.description) : ''),
+      el('div', {},
+        el('h1', {}, l.title),
+        el('div', { class: 'where' }, [l.city, l.prefecture].filter(Boolean).join(', ') + ', Japan'),
+        el('div', { class: 'price' }, price), el('div', { class: 'price-sub' }, priceSub),
+        el('div', { class: 'facts' },
+          fact('Layout', l.layout), fact('Year built', l.year_built),
+          fact('Land', l.land_m2 != null ? l.land_m2 + ' m²' : null), fact('Building', l.building_m2 != null ? l.building_m2 + ' m²' : null)),
+        el('div', { class: 'card' },
+          el('h2', {}, 'Contact the agent'),
+          el('div', {}, el('strong', {}, a.company)),
+          el('div', { class: 'agent-meta' }, 'Licence: ' + a.license_no + (a.languages ? ' · Speaks: ' + a.languages : '')),
+          a.website ? el('div', { class: 'agent-meta' }, el('a', { href: a.website, target: '_blank', rel: 'noopener nofollow' }, 'Agent website')) : '',
+          l.listing_url ? el('div', { class: 'agent-meta' }, el('a', { href: l.listing_url, target: '_blank', rel: 'noopener nofollow' }, 'This listing on the agent\'s site')) : '',
+          form),
+        el('p', { class: 'small' }, 'Listed by ' + a.company + '. AkiyaFind isn\'t a real estate agent. Check all details with the agent before you decide anything.'))));
+}
+
+fetch('/api/listing/' + encodeURIComponent(id))
+  .then(r => r.ok ? r.json() : Promise.reject(r.status))
+  .then(render)
+  .catch(() => main.replaceChildren(el('div', { class: 'missing' },
+    el('h1', {}, 'This listing isn\'t available'), el('p', {}, 'It may have been sold or withdrawn. '),
+    el('a', { href: '/search' }, 'Browse other homes →'))));
+</script>
+</body>
+</html>

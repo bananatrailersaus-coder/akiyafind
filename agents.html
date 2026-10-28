@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>List your properties — AkiyaFind for agents</title>
+<meta name="description" content="Licensed Japanese real estate agents: list akiya and rural houses on AkiyaFind for free and receive enquiries from overseas buyers.">
+<link rel="canonical" href="https://akiyafind.com/agents">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #1a1208; --rice: #f7f3ec; --cream: #ede8de; --vermillion: #c94a2a; --gold: #c8922a; --moss: #3d5a3e; --mist: #6b7a73; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'DM Sans', Arial, sans-serif; background: var(--rice); color: var(--ink); line-height: 1.55; }
+  nav { display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; background: #fff; border-bottom: 1px solid #e8e0d5; gap: 12px; }
+  .logo { font-family: 'Shippori Mincho', serif; font-size: 1.35rem; font-weight: 800; color: var(--ink); text-decoration: none; }
+  .logo sup { color: var(--gold); font-size: 0.5em; }
+  nav .links { display: flex; gap: 18px; align-items: center; font-size: 0.9rem; }
+  nav .links a { color: var(--mist); text-decoration: none; }
+  .btn { display: inline-block; background: var(--vermillion); color: #fff; border: none; border-radius: 6px; padding: 11px 22px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
+  .btn:hover { background: #a83a1c; }
+  .btn.secondary { background: var(--cream); color: var(--ink); }
+  .btn.small { padding: 6px 12px; font-size: 0.85rem; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .hero { background: var(--ink); color: var(--rice); padding: 56px 16px; }
+  .hero-inner { max-width: 960px; margin: 0 auto; }
+  .hero h1 { font-family: 'Shippori Mincho', serif; font-size: clamp(1.8rem, 4vw, 2.6rem); margin: 0 0 6px; }
+  .hero .jp { color: var(--gold); margin: 0 0 22px; }
+  .benefits { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 0 0 28px; padding: 0; list-style: none; }
+  .benefits li { background: rgba(255,255,255,0.06); border-radius: 8px; padding: 14px 16px; font-size: 0.92rem; }
+  .benefits strong { display: block; color: #fff; margin-bottom: 2px; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 56px; }
+  .card { background: #fff; border-radius: 10px; padding: 24px; margin-bottom: 22px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+  .card h2 { font-family: 'Shippori Mincho', serif; margin: 0 0 4px; font-size: 1.3rem; }
+  .card .sub { color: var(--mist); font-size: 0.88rem; margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+  .grid .full { grid-column: 1 / -1; }
+  label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; }
+  label .jp, .hint { font-weight: 400; color: var(--mist); }
+  .hint { font-size: 0.8rem; margin-top: 3px; }
+  input, select, textarea { width: 100%; padding: 9px 11px; border: 1px solid #d8cfc2; border-radius: 6px; font: inherit; background: #fff; }
+  textarea { min-height: 130px; resize: vertical; }
+  .msg { margin-top: 12px; font-size: 0.9rem; }
+  .msg.ok { color: var(--moss); }
+  .msg.err { color: var(--vermillion); }
+  .listing-row { display: grid; grid-template-columns: 84px 1fr auto; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid #f0ebe3; }
+  .listing-row img { width: 84px; height: 62px; object-fit: cover; border-radius: 6px; background: var(--cream); }
+  .badge { display: inline-block; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 8px; border-radius: 10px; margin-left: 6px; }
+  .badge.pending { background: #fff3d6; color: #7a5a10; }
+  .badge.approved { background: #e3f1e3; color: var(--moss); }
+  .badge.rejected { background: #fbe3dd; color: var(--vermillion); }
+  .badge.withdrawn { background: #eee; color: #666; }
+  .note { font-size: 0.85rem; color: var(--vermillion); margin-top: 2px; }
+  .enquiry { padding: 12px 0; border-bottom: 1px solid #f0ebe3; font-size: 0.92rem; }
+  .enquiry .meta { color: var(--mist); font-size: 0.82rem; }
+  .enquiry p { white-space: pre-wrap; margin: 6px 0 0; }
+  .empty { color: var(--mist); font-size: 0.92rem; }
+  @media (max-width: 640px) {
+    .grid { grid-template-columns: 1fr; }
+    .listing-row { grid-template-columns: 64px 1fr; }
+    .listing-row img { width: 64px; height: 48px; }
+    .listing-row .actions { grid-column: 1 / -1; }
+    nav .links .hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+<nav>
+  <a href="/" class="logo">AkiyaFind<sup>空き家</sup></a>
+  <div class="links">
+    <a href="/search" class="hide-sm">Browse</a>
+    <span id="nav-user"></span>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-inner">
+    <h1>List your properties on AkiyaFind</h1>
+    <p class="jp">海外の購入希望者へ物件を紹介しませんか。掲載は無料です。</p>
+    <ul class="benefits">
+      <li><strong>Reach overseas buyers</strong>Your listings appear in English search, on the map and in buyers' saved-search alert emails.</li>
+      <li><strong>Enquiries go straight to you</strong>Buyers contact you through the listing page. We email you each enquiry, and you reply directly.</li>
+      <li><strong>Free during launch</strong>No listing fees. We'll tell you well in advance if that changes.</li>
+      <li><strong>Licensed agents only</strong>Every listing is reviewed before it goes live. We need your 宅地建物取引業 licence number.</li>
+    </ul>
+    <div id="signed-out" hidden>
+      <a class="btn" href="/auth/login?next=/agents">Sign in with Google to start</a>
+      <p class="hint" style="color:#cfc6b8">Googleアカウントでログインしてください。</p>
+    </div>
+  </div>
+</section>
+
+<main id="dashboard" hidden>
+  <div class="card">
+    <h2>1. Your company <span class="jp" style="font-size:0.8rem;color:var(--mist)">会社情報</span></h2>
+    <p class="sub">Your company name, licence number, website and languages appear on your listings. Your email and phone are never shown; enquiries are emailed to you.</p>
+    <form id="profile-form" class="grid" autocomplete="on">
+      <div><label>Company name <span class="jp">会社名</span> *</label><input name="company" required maxlength="200"></div>
+      <div><label>Contact person <span class="jp">担当者名</span></label><input name="contact_name" maxlength="200"></div>
+      <div><label>Email for enquiries <span class="jp">問い合わせ用メール</span> *</label><input name="email" type="email" required maxlength="200"></div>
+      <div><label>Phone <span class="jp">電話番号</span></label><input name="phone" maxlength="50"></div>
+      <div><label>Website</label><input name="website" type="url" placeholder="https://" maxlength="500"></div>
+      <div><label>Languages you can work in <span class="jp">対応言語</span></label><input name="languages" placeholder="Japanese, English" maxlength="200"></div>
+      <div class="full">
+        <label>Real estate licence number <span class="jp">宅地建物取引業 免許番号</span> *</label>
+        <input name="license_no" required maxlength="100" placeholder="例: 東京都知事(2)第12345号">
+        <div class="hint">We check it on MLIT's public register before approving your first listing.</div>
+      </div>
+      <div class="full"><button class="btn" type="submit">Save company details</button><div class="msg" id="profile-msg"></div></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>2. Add a listing <span class="jp" style="font-size:0.8rem;color:var(--mist)">物件を登録</span></h2>
+    <p class="sub" id="listing-sub">Save your company details first.</p>
+    <form id="listing-form" class="grid" enctype="multipart/form-data">
+      <div class="full"><label>Title (English) <span class="jp">物件タイトル（英語）</span> *</label><input name="title" required maxlength="150" placeholder="e.g. Renovated farmhouse with mountain views"></div>
+      <div><label>Prefecture <span class="jp">都道府県</span> *</label><select name="prefecture" id="prefecture" required></select></div>
+      <div><label>Town / city <span class="jp">市区町村</span></label><input name="city" maxlength="100" placeholder="e.g. Matsumoto"></div>
+      <div><label>Price (yen) <span class="jp">価格（円）</span></label><input name="price_jpy" inputmode="numeric" placeholder="Leave blank for price on request"></div>
+      <div><label>Layout <span class="jp">間取り</span></label><input name="layout" maxlength="50" placeholder="e.g. 5LDK"></div>
+      <div><label>Land area m² <span class="jp">土地面積</span></label><input name="land_m2" inputmode="decimal"></div>
+      <div><label>Building area m² <span class="jp">建物面積</span></label><input name="building_m2" inputmode="decimal"></div>
+      <div><label>Year built <span class="jp">築年</span></label><input name="year_built" inputmode="numeric" placeholder="e.g. 1978"></div>
+      <div><label>Your listing page <span class="jp">自社の物件ページ</span></label><input name="listing_url" type="url" placeholder="https://" maxlength="500"></div>
+      <div class="full"><label>Description (English) <span class="jp">物件説明（英語）</span></label><textarea name="description" maxlength="5000" placeholder="Condition, access, nearby amenities, renovation needs, subsidies…"></textarea></div>
+      <div class="full">
+        <label>Photos <span class="jp">写真</span> * (up to 10)</label>
+        <input name="photos" type="file" accept="image/*" multiple required>
+        <div class="hint">The first photo is the cover. Photos are resized, and location data is removed.</div>
+      </div>
+      <div class="full">
+        <button class="btn" type="submit" id="listing-submit" disabled>Submit for review</button>
+        <div class="hint">By submitting you confirm you may publish this listing and its photos (see our <a href="/terms">terms</a>).</div>
+        <div class="msg" id="listing-msg"></div>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>3. Your listings <span class="jp" style="font-size:0.8rem;color:var(--mist)">掲載物件</span></h2>
+    <div id="my-listings"></div>
+  </div>
+
+  <div class="card">
+    <h2>4. Enquiries <span class="jp" style="font-size:0.8rem;color:var(--mist)">お問い合わせ</span></h2>
+    <p class="sub">Also emailed to your enquiry address. Reply to the buyer directly.</p>
+    <div id="my-enquiries"></div>
+  </div>
+</main>
+
+<script>
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null) e.append(k);
+  return e;
+}
+function track(name, data) { try { if (window.umami) window.umami.track(name, data); } catch (e) {} }
+const STATUS_TEXT = { pending: 'In review', approved: 'Live', rejected: 'Not approved', withdrawn: 'Withdrawn' };
+
+async function api(url, opts) {
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || 'Something went wrong (' + res.status + ')');
+  return data;
+}
+
+function renderListings(listings) {
+  const box = document.getElementById('my-listings');
+  box.replaceChildren();
+  if (!listings.length) { box.append(el('p', { class: 'empty' }, 'No listings yet.')); return; }
+  for (const l of listings) {
+    const actions = el('div', { class: 'actions' },
+      el('a', { class: 'btn small secondary', href: l.page_url, target: '_blank' }, l.status === 'approved' ? 'View' : 'Preview'), ' ',
+      l.status !== 'withdrawn' ? el('button', { class: 'btn small secondary', onclick: () => withdraw(l.id) }, 'Withdraw (sold)') : null);
+    box.append(el('div', { class: 'listing-row' },
+      el('img', { src: l.photo_urls[0] || '', alt: '' }),
+      el('div', {},
+        el('div', {}, el('strong', {}, l.title), el('span', { class: 'badge ' + l.status }, STATUS_TEXT[l.status] || l.status)),
+        el('div', { class: 'hint' }, [l.city, l.prefecture].filter(Boolean).join(', ') + ' · ' +
+          (l.price_jpy == null ? 'Price on request' : '¥' + Number(l.price_jpy).toLocaleString())),
+        l.status === 'rejected' && l.review_note ? el('div', { class: 'note' }, 'Reviewer note: ' + l.review_note) : null),
+      actions));
+  }
+}
+
+function renderEnquiries(list) {
+  const box = document.getElementById('my-enquiries');
+  box.replaceChildren();
+  if (!list.length) { box.append(el('p', { class: 'empty' }, 'No enquiries yet.')); return; }
+  for (const e of list) {
+    box.append(el('div', { class: 'enquiry' },
+      el('div', {}, el('strong', {}, e.name), ' · ', el('a', { href: 'mailto:' + e.email }, e.email)),
+      el('div', { class: 'meta' }, 'About: ' + e.listing_title + ' · ' + new Date(e.created_at).toLocaleString()),
+      el('p', {}, e.message)));
+  }
+}
+
+async function load() {
+  const data = await api('/api/agent/me');
+  const nav = document.getElementById('nav-user');
+  if (!data.user) {
+    document.getElementById('signed-out').hidden = false;
+    nav.replaceChildren(el('a', { href: '/auth/login?next=/agents' }, 'Sign in'));
+    return;
+  }
+  nav.replaceChildren(data.is_admin ? el('a', { href: '/admin' }, 'Review queue') : '', ' ',
+                      el('a', { href: '/auth/logout' }, 'Sign out'));
+  document.getElementById('dashboard').hidden = false;
+  const sel = document.getElementById('prefecture');
+  if (!sel.options.length) sel.append(el('option', { value: '' }, 'Choose…'), ...data.prefectures.map(p => el('option', { value: p }, p)));
+  const pf = document.getElementById('profile-form');
+  const profile = data.profile || { email: data.user.email, contact_name: data.user.name || '' };
+  for (const [k, v] of Object.entries(profile)) if (pf.elements[k]) pf.elements[k].value = v || '';
+  document.getElementById('listing-submit').disabled = !data.profile;
+  document.getElementById('listing-sub').textContent = data.profile
+    ? 'Listings go live once we\'ve reviewed them, usually within a few days.'
+    : 'Save your company details first.';
+  renderListings(data.listings);
+  renderEnquiries(data.enquiries);
+}
+
+document.getElementById('profile-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = document.getElementById('profile-msg');
+  const body = Object.fromEntries(new FormData(e.target));
+  try {
+    await api('/api/agent/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    track('agent-profile-saved');
+    await load();
+    msg.className = 'msg ok'; msg.textContent = 'Saved.';
+  } catch (err) { msg.className = 'msg err'; msg.textContent = err.message; }
+});
+
+document.getElementById('listing-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = document.getElementById('listing-msg');
+  const btn = document.getElementById('listing-submit');
+  const files = e.target.elements.photos.files;
+  if (files.length > 10) { msg.className = 'msg err'; msg.textContent = 'Up to 10 photos per listing.'; return; }
+  btn.disabled = true; msg.className = 'msg'; msg.textContent = 'Uploading…';
+  try {
+    await api('/api/agent/listings', { method: 'POST', body: new FormData(e.target) });
+    track('agent-listing-submitted', { prefecture: e.target.elements.prefecture.value });
+    e.target.reset();
+    await load();
+    msg.className = 'msg ok'; msg.textContent = 'Submitted. We\'ll review it shortly.';
+  } catch (err) { msg.className = 'msg err'; msg.textContent = err.message; }
+  btn.disabled = false;
+});
+
+async function withdraw(id) {
+  if (!confirm('Withdraw this listing? It will be removed from AkiyaFind.')) return;
+  try { await api('/api/agent/listings/' + id + '/withdraw', { method: 'POST' }); load(); }
+  catch (err) { alert(err.message); }
+}
+
+load().catch(err => { document.getElementById('signed-out').hidden = false; console.error(err); });
+</script>
+</body>
+</html>
