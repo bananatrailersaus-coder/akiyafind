@@ -3,7 +3,7 @@ server.py — AkiyaFind (with Google OAuth + Stripe payments)
 Replace your existing server.py with this file.
 """
 
-import os, secrets, hashlib, hmac, html
+import os, re, secrets, hashlib, hmac, html
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 import httpx
@@ -16,6 +16,8 @@ from authlib.integrations.starlette_client import OAuth
 from starlette.middleware.sessions import SessionMiddleware
 
 from alerts import ensure_alert_schema, listing_filter_sql, ALERT_LIMITS
+from pages import render_page
+from agents import router as agents_router, ensure_agent_schema
 
 # ---------------------------------------------------------------------------
 # Config
@@ -37,11 +39,6 @@ PAYMENTS_ENABLED = bool(STRIPE_SECRET_KEY and STRIPE_SEARCHER_PRICE and STRIPE_W
 
 BASE_URL = os.environ.get("BASE_URL", "https://akiyafind.com")
 
-# Privacy-friendly analytics (Umami: no cookies, no personal data). Off until
-# UMAMI_WEBSITE_ID is set; UMAMI_SCRIPT_URL only changes for self-hosting.
-UMAMI_WEBSITE_ID = os.environ.get("UMAMI_WEBSITE_ID", "").strip()
-UMAMI_SCRIPT_URL = os.environ.get("UMAMI_SCRIPT_URL", "").strip() or "https://cloud.umami.is/script.js"
-
 # Last full crawl before crawl_log existed (manual run #3, 26 May 2026).
 LEGACY_REFRESH = datetime(2026, 5, 26, tzinfo=timezone.utc)
 STALE_AFTER = timedelta(days=3)
@@ -54,6 +51,7 @@ stripe.api_key = STRIPE_SECRET_KEY
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(agents_router)
 
 oauth = OAuth()
 oauth.register(
@@ -87,6 +85,7 @@ def ensure_tables():
         )
     """)
     ensure_alert_schema(cur)
+    ensure_agent_schema(cur)
     conn.commit()
     cur.close()
     conn.close()
@@ -167,7 +166,10 @@ def get_listings():
 # Auth routes
 # ---------------------------------------------------------------------------
 @app.get("/auth/login")
-async def login(request: Request):
+async def login(request: Request, next: str = ""):
+    # Only same-site paths, so the login can't be used as an open redirect.
+    if re.fullmatch(r"/[A-Za-z0-9/_\-?=&.%]*", next or "") and not next.startswith("//"):
+        request.session["next"] = next
     redirect_uri = f"{BASE_URL}/auth/callback"
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
@@ -185,7 +187,7 @@ async def auth_callback(request: Request):
             picture=userinfo.get("picture", ""),
         )
         request.session["user"] = user
-        return RedirectResponse(url="/account")
+        return RedirectResponse(url=request.session.pop("next", None) or "/account")
     except Exception as e:
         return RedirectResponse(url=f"/?error=auth_failed")
 
@@ -323,7 +325,8 @@ def data_freshness():
     cur = conn.cursor()
     cur.execute("""
         SELECT MIN(COALESCE(c.last_ok, %s))
-        FROM (SELECT DISTINCT prefecture FROM listings WHERE delisted_at IS NULL) p
+        FROM (SELECT DISTINCT prefecture FROM listings
+              WHERE delisted_at IS NULL AND agent_listing_id IS NULL) p
         LEFT JOIN (SELECT prefecture, MAX(finished_at) AS last_ok
                    FROM crawl_log WHERE complete GROUP BY prefecture) c
           ON c.prefecture = p.prefecture
@@ -484,17 +487,6 @@ def api_counts():
     conn.close()
     return {"counts": {row[0]: row[1] for row in rows}}
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-def render_page(name):
-    with open(os.path.join(BASE_DIR, name)) as f:
-        page = f.read()
-    if UMAMI_WEBSITE_ID:
-        tag = (f'<script defer src="{html.escape(UMAMI_SCRIPT_URL)}" '
-               f'data-website-id="{html.escape(UMAMI_WEBSITE_ID)}"></script>')
-        page = page.replace("</head>", tag + "\n</head>", 1)
-    return page
-
 @app.get("/search", response_class=HTMLResponse)
 def search_page():
     return render_page("search.html")
@@ -505,7 +497,15 @@ def homepage():
 
 @app.get("/map", response_class=HTMLResponse)
 def map_page():
-    return render_page("map.html")
+    return render_page("map.html", footer=False)  # full-screen map: a footer would sit hidden below it
+
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy_page():
+    return render_page("privacy.html")
+
+@app.get("/terms", response_class=HTMLResponse)
+def terms_page():
+    return render_page("terms.html")
 
 @app.get("/pricing", response_class=HTMLResponse)
 def pricing_page():

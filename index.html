@@ -1057,7 +1057,9 @@ const NO_PHOTO = 'data:image/svg+xml,' + encodeURIComponent(
   "<path d='M255 222 L300 182 L345 222 V262 H255 Z' fill='none' stroke='#a8b8b0' stroke-width='6' stroke-linejoin='round'/>" +
   "<text x='300' y='310' text-anchor='middle' font-family='sans-serif' font-size='22' fill='#7d8a84'>No photo available</text></svg>");
 function photoUrl(l) {
-  return l.image_url ? '/api/img?url=' + encodeURIComponent(l.image_url) : NO_PHOTO;
+  if (!l.image_url) return NO_PHOTO;
+  // Our own photos (agent listings) are site paths; source-site photos go through the proxy.
+  return l.image_url.startsWith('/') ? l.image_url : '/api/img?url=' + encodeURIComponent(l.image_url);
 }
 const PHOTO_FALLBACK = 'onerror="this.onerror=null;this.src=NO_PHOTO"';
 // Scroll reveal: nothing added .visible before, so anything marked .reveal stayed invisible.

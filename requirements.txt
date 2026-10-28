@@ -7,3 +7,5 @@ authlib
 httpx
 stripe
 itsdangerous
+Pillow
+python-multipart
