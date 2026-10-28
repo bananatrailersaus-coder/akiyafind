@@ -29,13 +29,38 @@
   .enquiry { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 8px; font-size: 0.9rem; }
   .enquiry p { white-space: pre-wrap; margin: 4px 0 0; }
   .empty { color: var(--mist); }
+  .feed-url { word-break: break-all; }
+  .ok { color: var(--moss); }
+  .err { color: var(--vermillion); }
+  details { background: #fff; border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; }
+  summary { cursor: pointer; font-weight: 600; }
+  .form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-top: 12px; }
+  .form .full { grid-column: 1 / -1; }
+  .form label { display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 3px; }
+  .form input { width: 100%; padding: 8px 10px; border: 1px solid #d8cfc2; border-radius: 6px; font: inherit; }
+  @media (max-width: 640px) { .form { grid-template-columns: 1fr; } }
   a { color: var(--vermillion); }
 </style>
 </head>
 <body>
 <nav><a href="/" class="logo">AkiyaFind admin</a><a href="/agents">Agent dashboard</a></nav>
 <main>
-  <h1>Agent listings</h1>
+  <h1>Listing feeds</h1>
+  <div id="feeds"></div>
+  <details>
+    <summary>Add a feed for an agent who agreed by email</summary>
+    <form id="add-feed" class="form">
+      <div><label>Company name *</label><input name="company" required maxlength="200"></div>
+      <div><label>Email for enquiries *</label><input name="email" type="email" required maxlength="200"></div>
+      <div><label>Licence number *</label><input name="license_no" required maxlength="100"></div>
+      <div><label>Website</label><input name="website" type="url" placeholder="https://" maxlength="500"></div>
+      <div class="full"><label>Feed address (Kyero XML) *</label><input name="url" type="url" required placeholder="https://" maxlength="500"></div>
+      <div class="full"><button class="btn approve" type="submit">Add &amp; import</button> <span id="add-feed-msg" class="meta"></span>
+        <div class="meta">Only add a feed once the agent has said yes in writing. If they later sign in with Google using this email, the listings become theirs to manage.</div></div>
+    </form>
+  </details>
+
+  <h1 style="margin-top:32px">Agent listings</h1>
   <div class="tabs" id="tabs"></div>
   <div id="list"></div>
   <h1 style="margin-top:32px">Recent enquiries</h1>
@@ -65,7 +90,63 @@ async function review(id, action) {
   load();
 }
 
+async function feedAction(id, action) {
+  let body;
+  if (action === 'reject') {
+    const note = prompt('Reason, shown to the agent (optional):', '');
+    if (note === null) return;
+    body = JSON.stringify({ note });
+  }
+  if (action === 'disable' && !confirm('Switch this feed off? All its listings will be hidden.')) return;
+  const res = await fetch('/api/admin/feeds/' + id + '/' + action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  const d = await res.json().catch(() => ({}));
+  alert(res.ok ? (d.ok ? 'Done: ' : 'Import failed: ') + d.message : (d.detail || 'Failed'));
+  load();
+}
+
+async function loadFeeds() {
+  const res = await fetch('/api/admin/feeds');
+  const box = document.getElementById('feeds');
+  if (!res.ok) { box.replaceChildren(); return; }
+  const feeds = (await res.json()).feeds;
+  box.replaceChildren();
+  if (!feeds.length) box.append(el('p', { class: 'empty' }, 'No feeds yet.'));
+  for (const f of feeds) {
+    const a = f.agent;
+    const btn = (label, cls, action) => el('button', { class: 'btn ' + cls, onclick: () => feedAction(f.id, action) }, label);
+    const buttons = {
+      pending:  [btn('Approve & import', 'approve', 'approve'), btn('Reject', 'reject', 'reject')],
+      approved: [btn('Import now', 'approve', 'import'), btn('Switch off', 'reject', 'disable')],
+      rejected: [btn('Approve & import', 'approve', 'approve')],
+      disabled: [btn('Approve & import', 'approve', 'approve')],
+    }[f.status] || [];
+    box.append(el('div', { class: 'item' },
+      el('strong', {}, a.company), ' · ', el('span', { class: 'meta' }, f.status === 'removed' ? 'removed by the agent' : f.status),
+      el('div', { class: 'feed-url' }, el('a', { href: f.url, target: '_blank', rel: 'noopener' }, f.url)),
+      el('div', { class: 'agent' },
+        'Licence: ' + a.license_no + ' — ', el('a', { href: 'https://etsuran2.mlit.go.jp/TAKKEN/', target: '_blank', rel: 'noopener' }, 'check on MLIT register'),
+        el('br'), a.email, a.website ? el('span', {}, ' · ', el('a', { href: a.website, target: '_blank', rel: 'noopener' }, a.website)) : ''),
+      el('div', { class: 'meta' }, f.live + ' listings live' + (f.last_run_at ? ' · last import ' + new Date(f.last_run_at).toLocaleString() : ' · never imported')),
+      f.last_message ? el('div', { class: f.last_ok ? 'meta ok' : 'meta err' }, f.last_message) : '',
+      f.review_note ? el('div', { class: 'meta' }, 'Note: ' + f.review_note) : '',
+      el('div', { style: 'margin-top:8px' }, buttons)));
+  }
+}
+
+document.getElementById('add-feed').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = document.getElementById('add-feed-msg');
+  msg.textContent = 'Importing…';
+  const res = await fetch('/api/admin/feeds', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                               body: JSON.stringify(Object.fromEntries(new FormData(e.target))) });
+  const d = await res.json().catch(() => ({}));
+  msg.textContent = res.ok ? (d.ok ? 'Done: ' : 'Added, but the import failed: ') + d.message : (d.detail || 'Failed');
+  if (res.ok) e.target.reset();
+  loadFeeds();
+});
+
 async function load() {
+  loadFeeds();
   const tabs = document.getElementById('tabs');
   tabs.replaceChildren(...STATUSES.map(s => el('button', { class: s === current ? 'on' : '', onclick: () => { current = s; load(); } }, s)));
   const res = await fetch('/api/admin/listings?status=' + current);
@@ -82,6 +163,7 @@ async function load() {
       el('div', { class: 'meta' }, [l.city, l.prefecture].filter(Boolean).join(', ') + ' · ' +
         (l.price_jpy == null ? 'price on request' : '¥' + Number(l.price_jpy).toLocaleString()) +
         (l.layout ? ' · ' + l.layout : '') + (l.year_built ? ' · built ' + l.year_built : '') +
+        (l.from_feed ? ' · from feed' + (l.in_feed ? '' : ' (no longer in it, hidden)') : '') +
         ' · submitted ' + new Date(l.created_at).toLocaleDateString()),
       l.description ? el('div', { class: 'desc' }, l.description) : '',
       l.listing_url ? el('div', { class: 'meta' }, 'Agent page: ', el('a', { href: l.listing_url, target: '_blank', rel: 'noopener' }, l.listing_url)) : '',

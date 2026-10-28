@@ -14,12 +14,15 @@ import re
 import time
 import warnings
 from collections import defaultdict, deque
+from email.utils import parseaddr
+from urllib.parse import quote
 
 import psycopg2
 import requests
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from PIL import Image, ImageOps
+from starlette.concurrency import run_in_threadpool
 
 from pages import render_page
 
@@ -208,11 +211,17 @@ def listing_page_url(listing_id):
 def publish(cur, listing_id):
     cur.execute("""
         SELECT l.title, l.prefecture, l.city, l.price_jpy, COALESCE(l.building_m2, l.land_m2), p.company,
-               (SELECT id FROM agent_photos WHERE listing_id = l.id ORDER BY position, id LIMIT 1)
+               (SELECT id FROM agent_photos WHERE listing_id = l.id ORDER BY position, id LIMIT 1), l.photo_urls[1],
+               l.feed_removed_at
         FROM agent_listings l JOIN agent_profiles p ON p.user_id = l.user_id
         WHERE l.id = %s
     """, (listing_id,))
-    title, pref, city, price, size, company, photo_id = cur.fetchone()
+    title, pref, city, price, size, company, photo_id, feed_photo, feed_removed_at = cur.fetchone()
+    if feed_removed_at is not None:  # no longer in the agent's feed: approving it mustn't bring it back
+        unpublish(cur, listing_id)
+        return
+    # Uploaded photos are served by us; feed photos (agent's server) go through /api/img like source-site photos.
+    image = f"/agent-photos/{photo_id}" if photo_id else (feed_photo or "")
     cur.execute("""
         INSERT INTO listings (source_url, prefecture, city, title_en, title_jp, price_jpy, size_m2,
                               source_name, is_free, image_url, agent_listing_id, last_seen_at, delisted_at)
@@ -222,8 +231,7 @@ def publish(cur, listing_id):
             price_jpy = EXCLUDED.price_jpy, size_m2 = EXCLUDED.size_m2, source_name = EXCLUDED.source_name,
             is_free = EXCLUDED.is_free, image_url = EXCLUDED.image_url,
             agent_listing_id = EXCLUDED.agent_listing_id, last_seen_at = NOW(), delisted_at = NULL
-    """, (listing_page_url(listing_id), pref, city, title, price, size, company, price == 0,
-          f"/agent-photos/{photo_id}" if photo_id else "", listing_id))
+    """, (listing_page_url(listing_id), pref, city, title, price, size, company, price == 0, image, listing_id))
 
 
 def unpublish(cur, listing_id):
@@ -254,15 +262,24 @@ def listing_page(listing_id: int):
 # Agent API
 # ---------------------------------------------------------------------------
 LISTING_COLS = """l.id, l.status, l.title, l.prefecture, l.city, l.price_jpy, l.land_m2, l.building_m2,
-                  l.year_built, l.layout, l.description, l.listing_url, l.review_note, l.created_at"""
+                  l.year_built, l.layout, l.description, l.listing_url, l.review_note, l.created_at,
+                  l.photo_urls, l.feed_id, l.feed_removed_at"""
+LISTING_KEYS = ["id", "status", "title", "prefecture", "city", "price_jpy", "land_m2", "building_m2",
+                "year_built", "layout", "description", "listing_url", "review_note", "created_at",
+                "feed_photo_urls", "feed_id", "feed_removed_at"]
+
+
+def image_proxy_path(url):
+    return "/api/img?url=" + quote(url, safe="")
 
 
 def listing_dict(row, photo_ids):
-    keys = ["id", "status", "title", "prefecture", "city", "price_jpy", "land_m2", "building_m2",
-            "year_built", "layout", "description", "listing_url", "review_note", "created_at"]
-    d = dict(zip(keys, row))
+    d = dict(zip(LISTING_KEYS, row))
     d["created_at"] = d["created_at"].isoformat() if d["created_at"] else None
-    d["photo_urls"] = [f"/agent-photos/{p}" for p in photo_ids]
+    feed_photos = d.pop("feed_photo_urls") or []
+    d["photo_urls"] = [f"/agent-photos/{p}" for p in photo_ids] or [image_proxy_path(u) for u in feed_photos]
+    d["from_feed"] = d.pop("feed_id") is not None
+    d["in_feed"] = d.pop("feed_removed_at") is None  # False once it dropped out of the feed
     d["page_url"] = f"/listing/{d['id']}"
     return d
 
@@ -424,7 +441,8 @@ def public_listing(listing_id: int, request: Request):
     cur = conn.cursor()
     cur.execute(f"SELECT {LISTING_COLS}, l.user_id FROM agent_listings l WHERE l.id=%s", (listing_id,))
     row = cur.fetchone()
-    if not row or (row[1] != "approved" and not can_preview(session_user(request), row[-1])):
+    visible = row and row[1] == "approved" and row[LISTING_KEYS.index("feed_removed_at")] is None
+    if not row or (not visible and not can_preview(session_user(request), row[-1])):
         cur.close()
         conn.close()
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -463,17 +481,31 @@ def client_ip(request: Request):
     return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "?")
 
 
-def email_agent(to, reply_to, subject, text_body):
+def personal_from(name):
+    """'Jane Buyer via AkiyaFind <alerts@…>'. Mail that reads as from a person is less likely to be
+    filed under Gmail's Updates tab, where agents might miss it. Quotes, brackets and commas are dropped
+    so the name can't break the address."""
+    display, addr = parseaddr(ALERT_FROM_EMAIL)
+    clean = re.sub(r"[^\w .'-]", "", name).strip()[:60]
+    return f'"{clean} via {display or "AkiyaFind"}" <{addr}>' if clean and addr else ALERT_FROM_EMAIL
+
+
+def email_agent(to, reply_to, subject, text_body, sender=None):
     if not RESEND_API_KEY:
         return False
-    try:
-        r = requests.post("https://api.resend.com/emails", timeout=20,
-                          headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
-                          json={"from": ALERT_FROM_EMAIL, "to": [to], "reply_to": reply_to,
-                                "subject": subject, "text": text_body})
-        return r.status_code < 300
-    except requests.RequestException:
-        return False
+    for from_ in dict.fromkeys([sender or ALERT_FROM_EMAIL, ALERT_FROM_EMAIL]):
+        try:
+            r = requests.post("https://api.resend.com/emails", timeout=20,
+                              headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+                              json={"from": from_, "to": [to], "reply_to": reply_to,
+                                    "subject": subject, "text": text_body})
+        except requests.RequestException:
+            return False
+        if r.status_code < 300:
+            return True
+        if r.status_code not in (400, 422):
+            return False  # only a rejected From is worth retrying with the plain sender
+    return False
 
 
 @router.post("/api/listing/{listing_id}/enquire")
@@ -497,7 +529,7 @@ async def enquire(listing_id: int, request: Request):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT l.title, p.email FROM agent_listings l JOIN agent_profiles p ON p.user_id = l.user_id
-                   WHERE l.id=%s AND l.status='approved'""", (listing_id,))
+                   WHERE l.id=%s AND l.status='approved' AND l.feed_removed_at IS NULL""", (listing_id,))
     row = cur.fetchone()
     if not row:
         cur.close()
@@ -510,11 +542,13 @@ async def enquire(listing_id: int, request: Request):
     conn.commit()
     recent.append(now)
 
-    sent = email_agent(
-        agent_email, email, f"AkiyaFind enquiry: {title}",
-        f"New enquiry from AkiyaFind about your listing \"{title}\"\n{listing_page_url(listing_id)}\n\n"
-        f"From: {name} <{email}>\n\n{message}\n\n"
-        f"Reply to this email to answer {name} directly. You can also see all enquiries at {BASE_URL}/agents\n")
+    # The buyer's message comes first and there's a single link: it should read like a person's email.
+    sent = await run_in_threadpool(
+        email_agent, agent_email, email, f"Enquiry about {title}",
+        f"{message}\n\n{name} <{email}>\n\n"
+        f"--\nSent through AkiyaFind about your listing \"{title}\":\n{listing_page_url(listing_id)}\n"
+        f"Reply to this email to answer {name} directly.\n",
+        personal_from(name))
     if sent:
         cur.execute("UPDATE enquiries SET emailed=TRUE WHERE id=%s", (enquiry_id,))
         conn.commit()
@@ -540,8 +574,8 @@ def admin_listings(request: Request, status: str = "pending"):
     photos = photo_ids_for(cur, [r[0] for r in rows])
     out = []
     for r in rows:
-        d = listing_dict(r[:14], photos[r[0]])
-        d["agent"] = dict(zip(["company", "license_no", "email", "phone", "website", "contact_name"], r[14:]))
+        d = listing_dict(r[:len(LISTING_KEYS)], photos[r[0]])
+        d["agent"] = dict(zip(["company", "license_no", "email", "phone", "website", "contact_name"], r[len(LISTING_KEYS):]))
         out.append(d)
     cur.execute("""SELECT e.id, e.listing_id, l.title, e.name, e.email, e.message, e.emailed, e.created_at
                    FROM enquiries e JOIN agent_listings l ON l.id = e.listing_id ORDER BY e.id DESC LIMIT 50""")

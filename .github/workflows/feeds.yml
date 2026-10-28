@@ -1,0 +1,38 @@
+name: AkiyaFind Feeds
+
+# Imports approved agents' listings feeds (feeds.py), then sends saved-search
+# alerts so buyers hear about new feed listings even while the crawler is off.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '20 16 * * *'
+
+# Shared with the crawler so the two never send alerts at the same time.
+concurrency:
+  group: akiyafind-database
+  cancel-in-progress: false
+
+jobs:
+  feeds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Import feeds
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python3 feeds.py
+
+      - name: Send saved-search email alerts
+        # Still send alerts for the feeds that worked when another feed failed.
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERT_FROM_EMAIL: ${{ secrets.ALERT_FROM_EMAIL }}
+        run: python3 alerts.py

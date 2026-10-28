@@ -52,6 +52,8 @@
   .badge.rejected { background: #fbe3dd; color: var(--vermillion); }
   .badge.withdrawn { background: #eee; color: #666; }
   .note { font-size: 0.85rem; color: var(--vermillion); margin-top: 2px; }
+  .feed-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid #f0ebe3; margin-top: 12px; font-size: 0.9rem; }
+  .feed-row .url { word-break: break-all; }
   .enquiry { padding: 12px 0; border-bottom: 1px solid #f0ebe3; font-size: 0.92rem; }
   .enquiry .meta { color: var(--mist); font-size: 0.82rem; }
   .enquiry p { white-space: pre-wrap; margin: 6px 0 0; }
@@ -139,12 +141,26 @@
   </div>
 
   <div class="card">
-    <h2>3. Your listings <span class="jp" style="font-size:0.8rem;color:var(--mist)">掲載物件</span></h2>
+    <h2>3. Or import a listings feed <span class="jp" style="font-size:0.8rem;color:var(--mist)">物件フィードの取り込み</span></h2>
+    <p class="sub">If you already send your listings to portals as a Kyero XML feed, give us its address and we'll import every property and keep them up to date daily. Properties that leave the feed are removed from AkiyaFind. We review the feed before importing anything.</p>
+    <form id="feed-form" class="grid">
+      <div class="full"><label>Feed address (Kyero XML) <span class="jp">フィードURL</span></label><input name="url" type="url" required placeholder="https://" maxlength="500"></div>
+      <div class="full">
+        <button class="btn" type="submit" id="feed-submit" disabled>Send feed for review</button>
+        <div class="hint">By sending a feed you confirm you may publish its listings and photos on AkiyaFind (see our <a href="/terms">terms</a>).</div>
+        <div class="msg" id="feed-msg"></div>
+      </div>
+    </form>
+    <div id="my-feeds"></div>
+  </div>
+
+  <div class="card">
+    <h2>4. Your listings <span class="jp" style="font-size:0.8rem;color:var(--mist)">掲載物件</span></h2>
     <div id="my-listings"></div>
   </div>
 
   <div class="card">
-    <h2>4. Enquiries <span class="jp" style="font-size:0.8rem;color:var(--mist)">お問い合わせ</span></h2>
+    <h2>5. Enquiries <span class="jp" style="font-size:0.8rem;color:var(--mist)">お問い合わせ</span></h2>
     <p class="sub">Also emailed to your enquiry address. Reply to the buyer directly.</p>
     <div id="my-enquiries"></div>
   </div>
@@ -159,8 +175,14 @@ function el(tag, attrs, ...kids) {
   for (const k of kids.flat()) if (k != null) e.append(k);
   return e;
 }
+const NO_PHOTO = 'data:image/svg+xml,' + encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 400'>" +
+  "<rect width='600' height='400' fill='#ede8de'/>" +
+  "<path d='M255 222 L300 182 L345 222 V262 H255 Z' fill='none' stroke='#a8b8b0' stroke-width='6' stroke-linejoin='round'/>" +
+  "<text x='300' y='310' text-anchor='middle' font-family='sans-serif' font-size='22' fill='#7d8a84'>No photo available</text></svg>");
 function track(name, data) { try { if (window.umami) window.umami.track(name, data); } catch (e) {} }
 const STATUS_TEXT = { pending: 'In review', approved: 'Live', rejected: 'Not approved', withdrawn: 'Withdrawn' };
+const FEED_TEXT = { pending: 'In review', approved: 'Importing daily', rejected: 'Not approved', disabled: 'Switched off by AkiyaFind' };
 
 async function api(url, opts) {
   const res = await fetch(url, opts);
@@ -174,18 +196,35 @@ function renderListings(listings) {
   box.replaceChildren();
   if (!listings.length) { box.append(el('p', { class: 'empty' }, 'No listings yet.')); return; }
   for (const l of listings) {
+    const hidden = l.status === 'approved' && !l.in_feed;
     const actions = el('div', { class: 'actions' },
       el('a', { class: 'btn small secondary', href: l.page_url, target: '_blank' }, l.status === 'approved' ? 'View' : 'Preview'), ' ',
       l.status !== 'withdrawn' ? el('button', { class: 'btn small secondary', onclick: () => withdraw(l.id) }, 'Withdraw (sold)') : null);
     box.append(el('div', { class: 'listing-row' },
-      el('img', { src: l.photo_urls[0] || '', alt: '' }),
+      el('img', { src: l.photo_urls[0] || NO_PHOTO, alt: '', onerror: e => { if (e.target.src !== NO_PHOTO) e.target.src = NO_PHOTO; } }),
       el('div', {},
-        el('div', {}, el('strong', {}, l.title), el('span', { class: 'badge ' + l.status }, STATUS_TEXT[l.status] || l.status)),
+        el('div', {}, el('strong', {}, l.title), el('span', { class: 'badge ' + (hidden ? 'withdrawn' : l.status) },
+          hidden ? 'Not in your feed' : STATUS_TEXT[l.status] || l.status)),
         el('div', { class: 'hint' }, [l.city, l.prefecture].filter(Boolean).join(', ') + ' · ' +
-          (l.price_jpy == null ? 'Price on request' : '¥' + Number(l.price_jpy).toLocaleString())),
+          (l.price_jpy == null ? 'Price on request' : '¥' + Number(l.price_jpy).toLocaleString()) +
+          (l.from_feed ? ' · from your feed' : '')),
         l.status === 'rejected' && l.review_note ? el('div', { class: 'note' }, 'Reviewer note: ' + l.review_note) : null),
       actions));
   }
+}
+
+function renderFeeds(feeds) {
+  const box = document.getElementById('my-feeds');
+  box.replaceChildren(...feeds.filter(f => f.status !== 'removed').map(f => {
+    let detail = FEED_TEXT[f.status] || f.status;
+    if (f.status === 'approved' && f.last_run_at)
+      detail += f.last_ok ? ' · ' + (f.last_count || 0) + ' listings · last import ' + new Date(f.last_run_at).toLocaleDateString()
+                          : ' · last import failed: ' + f.last_message;
+    if (f.status === 'rejected' && f.review_note) detail += ': ' + f.review_note;
+    return el('div', { class: 'feed-row' },
+      el('div', {}, el('div', { class: 'url' }, f.url), el('div', { class: 'hint' }, detail)),
+      el('button', { class: 'btn small secondary', onclick: () => removeFeed(f.id) }, 'Remove'));
+  }));
 }
 
 function renderEnquiries(list) {
@@ -220,8 +259,11 @@ async function load() {
   document.getElementById('listing-sub').textContent = data.profile
     ? 'Listings go live once we\'ve reviewed them, usually within a few days.'
     : 'Save your company details first.';
+  document.getElementById('feed-submit').disabled = !data.profile;
   renderListings(data.listings);
   renderEnquiries(data.enquiries);
+  try { renderFeeds((await api('/api/agent/feeds')).feeds); }
+  catch (err) { console.error(err); }  // the rest of the dashboard still works
 }
 
 document.getElementById('profile-form').addEventListener('submit', async e => {
@@ -252,6 +294,26 @@ document.getElementById('listing-form').addEventListener('submit', async e => {
   } catch (err) { msg.className = 'msg err'; msg.textContent = err.message; }
   btn.disabled = false;
 });
+
+document.getElementById('feed-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = document.getElementById('feed-msg');
+  try {
+    const r = await api('/api/agent/feeds', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                             body: JSON.stringify(Object.fromEntries(new FormData(e.target))) });
+    track('agent-feed-submitted');
+    e.target.reset();
+    await load();
+    msg.className = 'msg ok';
+    msg.textContent = r.status === 'pending' ? 'Sent. We\'ll review it and import your listings.' : 'You\'ve already sent this feed.';
+  } catch (err) { msg.className = 'msg err'; msg.textContent = err.message; }
+});
+
+async function removeFeed(id) {
+  if (!confirm('Remove this feed? Its listings will be taken off AkiyaFind.')) return;
+  try { await api('/api/agent/feeds/' + id + '/remove', { method: 'POST' }); load(); }
+  catch (err) { alert(err.message); }
+}
 
 async function withdraw(id) {
   if (!confirm('Withdraw this listing? It will be removed from AkiyaFind.')) return;
