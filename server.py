@@ -3,7 +3,7 @@ server.py — AkiyaFind (with Google OAuth + Stripe payments)
 Replace your existing server.py with this file.
 """
 
-import os, re, secrets, hashlib, hmac, html
+import asyncio, os, re, secrets, hashlib, hmac, html
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 import httpx
@@ -18,6 +18,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from alerts import ensure_alert_schema, listing_filter_sql, ALERT_LIMITS
 from pages import render_page
 from agents import router as agents_router, ensure_agent_schema
+import feeds
+from feeds import router as feeds_router, ensure_feed_schema
 
 # ---------------------------------------------------------------------------
 # Config
@@ -65,6 +67,7 @@ async def redirect_www(request: Request, call_next):
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(agents_router)
+app.include_router(feeds_router)
 
 oauth = OAuth()
 oauth.register(
@@ -99,6 +102,7 @@ def ensure_tables():
     """)
     ensure_alert_schema(cur)
     ensure_agent_schema(cur)
+    ensure_feed_schema(cur)
     conn.commit()
     cur.close()
     conn.close()
@@ -527,8 +531,9 @@ def pricing_page():
         return render_page("pricing.html")
     except FileNotFoundError:
         return render_page("index.html")
-# Only proxy listing photos from the source site, never arbitrary URLs.
+# Only proxy listing photos from the source site and from approved agent feeds, never arbitrary URLs.
 IMG_PROXY_HOSTS = ("akiya-athome.jp", "athome.jp")
+IMG_MAX_BYTES = 15 * 1024 * 1024
 
 def _is_allowed_img_url(url: str) -> bool:
     parsed = urlparse(url)
@@ -537,27 +542,40 @@ def _is_allowed_img_url(url: str) -> bool:
         any(host == h or host.endswith("." + h) for h in IMG_PROXY_HOSTS)
     )
 
+async def _is_feed_img_url(url: str) -> bool:
+    """A photo host listed in an approved agent feed. Agents control these, so the host must also
+    resolve only to public addresses (no localhost or private networks)."""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in ("http", "https") or not host or parsed.username is not None or parsed.port not in (None, 80, 443):
+        return False
+    return (host in await asyncio.to_thread(feeds.feed_photo_hosts)
+            and await asyncio.to_thread(feeds.host_is_public, host))
+
+async def _img_url_ok(url: str) -> bool:
+    return _is_allowed_img_url(url) or await _is_feed_img_url(url)
+
 @app.get("/api/img")
 async def image_proxy(url: str, request: Request):
-    if not _is_allowed_img_url(url):
+    if not await _img_url_ok(url):
         return Response(content=b'', status_code=400)
     try:
         async with httpx.AsyncClient() as client:
             # Follow redirects by hand so every hop is re-checked against the allowlist.
             for _ in range(4):
-                r = await client.get(url, headers={
-                    "Referer": "https://www.akiya-athome.jp/",
-                    "User-Agent": "Mozilla/5.0"
-                }, follow_redirects=False, timeout=10)
+                headers = ({"Referer": "https://www.akiya-athome.jp/", "User-Agent": "Mozilla/5.0"}
+                           if _is_allowed_img_url(url) else
+                           {"User-Agent": "Mozilla/5.0 (compatible; AkiyaFindBot/1.0; +https://akiyafind.com/agents)"})
+                r = await client.get(url, headers=headers, follow_redirects=False, timeout=10)
                 if not r.is_redirect:
                     break
                 url = str(r.url.join(r.headers.get("location", "")))
-                if not _is_allowed_img_url(url):
+                if not await _img_url_ok(url):
                     return Response(content=b'', status_code=404)
             else:
                 return Response(content=b'', status_code=404)
         content_type = r.headers.get("content-type", "")
-        if r.status_code != 200 or not content_type.startswith("image/"):
+        if r.status_code != 200 or not content_type.startswith("image/") or len(r.content) > IMG_MAX_BYTES:
             return Response(content=b'', status_code=404)
         return Response(content=r.content, media_type=content_type,
                         headers={"Cache-Control": "public, max-age=86400"})

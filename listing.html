@@ -63,6 +63,11 @@ function el(tag, attrs, ...kids) {
   for (const k of kids.flat()) if (k != null) e.append(k);
   return e;
 }
+const NO_PHOTO = 'data:image/svg+xml,' + encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 400'>" +
+  "<rect width='600' height='400' fill='#ede8de'/>" +
+  "<path d='M255 222 L300 182 L345 222 V262 H255 Z' fill='none' stroke='#a8b8b0' stroke-width='6' stroke-linejoin='round'/>" +
+  "<text x='300' y='310' text-anchor='middle' font-family='sans-serif' font-size='22' fill='#7d8a84'>No photo available</text></svg>");
 function track(name, data) { try { if (window.umami) window.umami.track(name, data); } catch (e) {} }
 const id = location.pathname.split('/').filter(Boolean).pop();
 const main = document.getElementById('main');
@@ -76,9 +81,11 @@ function render(l) {
   const priceSub = isFree ? 'Free transfer' : noPrice ? 'Ask the agent for the price'
     : 'about AUD $' + Math.round(l.price_jpy * 0.0091).toLocaleString() + ' (approximate)';
 
-  const mainPhoto = el('img', { class: 'main-photo', src: l.photo_urls[0] || '', alt: l.title });
+  const mainPhoto = el('img', { class: 'main-photo', src: l.photo_urls[0] || NO_PHOTO, alt: l.title,
+                                   onerror: e => { if (e.target.src !== NO_PHOTO) e.target.src = NO_PHOTO; } });
   const thumbs = el('div', { class: 'thumbs' }, l.photo_urls.map((u, i) => {
-    const t = el('img', { src: u, alt: 'Photo ' + (i + 1), class: i === 0 ? 'active' : '' });
+    const t = el('img', { src: u, alt: 'Photo ' + (i + 1), class: i === 0 ? 'active' : '',
+                         onerror: e => { if (e.target.src !== NO_PHOTO) e.target.src = NO_PHOTO; } });
     t.addEventListener('click', () => { mainPhoto.src = u; thumbs.querySelectorAll('img').forEach(x => x.classList.remove('active')); t.classList.add('active'); });
     return t;
   }));
