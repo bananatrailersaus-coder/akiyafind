@@ -49,6 +49,19 @@ stripe.api_key = STRIPE_SECRET_KEY
 # App
 # ---------------------------------------------------------------------------
 app = FastAPI()
+
+CANONICAL_HOST = urlparse(BASE_URL).hostname or "akiyafind.com"
+
+@app.middleware("http")
+async def redirect_www(request: Request, call_next):
+    # One address for the site: www.akiyafind.com -> akiyafind.com, keeping path and query.
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    if host == "www." + CANONICAL_HOST:
+        target = f"https://{CANONICAL_HOST}{request.url.path}" + (f"?{request.url.query}" if request.url.query else "")
+        # 301 for page loads; 308 keeps the method for anything else (e.g. a form POST)
+        return RedirectResponse(target, status_code=301 if request.method in ("GET", "HEAD") else 308)
+    return await call_next(request)
+
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(agents_router)
