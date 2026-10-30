@@ -1,7 +1,7 @@
 """
 alerts.py — AkiyaFind saved-search email alerts.
 
-Shared by server.py (schema + filter SQL) and run daily after the crawler:
+Shared by server.py (schema + filter SQL) and run daily after the feed import:
 
     export DATABASE_URL="postgresql://..."
     export RESEND_API_KEY="re_..."
@@ -49,9 +49,15 @@ def ensure_alert_schema(cur):
     """)
 
 
+# Listings we may show. Only agent listings (uploaded or from an approved feed) are
+# published: At Home declined permission on 29 Oct 2026 and asked us to remove
+# everything taken from akiya-athome.jp, so rows without agent_listing_id never appear.
+PUBLISHED_SQL = "delisted_at IS NULL AND agent_listing_id IS NOT NULL"
+
+
 def listing_filter_sql(q="", prefecture="", min_price=0, max_price=0):
     """WHERE-clause fragment shared by /api/search and alerts so both match the same listings."""
-    sql, params = " AND delisted_at IS NULL", []
+    sql, params = " AND " + PUBLISHED_SQL, []
     if q:
         sql += " AND (LOWER(city) LIKE %s OR LOWER(prefecture) LIKE %s OR LOWER(title_en) LIKE %s)"
         params += [f"%{q.lower()}%"] * 3

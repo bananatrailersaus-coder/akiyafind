@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Map Search — AkiyaFind | Find Vacant Homes in Japan</title>
-<meta name="description" content="Browse vacant houses in Japan on an interactive map. Search akiya listings by location, price and size across all 47 prefectures.">
+<meta name="description" content="Browse akiya and affordable homes for sale in Japan on an interactive map, listed in English by licensed Japanese real estate agents.">
 <link rel="canonical" href="https://akiyafind.com/map">
 <meta name="theme-color" content="#C94A2A">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -106,8 +106,6 @@
     border-bottom: 1px solid rgba(200,146,42,0.12);
     display: flex; justify-content: space-between; align-items: center;
   }
-  .data-notice { font-size: 0.8rem; color: #6b7a73; margin: 8px 16px; }
-  .data-notice.stale { background: #fff6e0; border: 1px solid #e8c77a; color: #6b4e0e; padding: 10px 14px; border-radius: 6px; }
   .sidebar-count { font-size: 0.78rem; color: var(--mist); }
   .sidebar-count strong { color: var(--ink); }
   .sort-sel {
@@ -306,7 +304,6 @@
       </select>
     </div>
 
-    <div class="data-notice" id="data-notice" hidden></div>
     <div class="listing-list" id="listing-list">
       <div class="list-loading"><div class="spinner"></div><p style="color:var(--mist);font-size:0.82rem">Loading listings…</p></div>
     </div>
@@ -342,17 +339,9 @@ const PREF_COORDS = {
   'Kagoshima': [31.560, 130.558], 'Okinawa': [26.212, 127.681],
 };
 
-// Data-freshness notice: the listings are only as current as the last full crawl.
-function showFreshness(f) {
-  const el = document.getElementById('data-notice');
-  if (!el || !f || !f.refreshed_at) return;
-  const d = new Date(f.refreshed_at + 'T00:00:00Z').toLocaleDateString('en-AU',
-    { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
-  el.textContent = f.stale
-    ? 'Listings last refreshed ' + d + '. Some may have sold since, so always check the source listing.'
-    : 'Listings refreshed daily · last updated ' + d + '.';
-  el.className = 'data-notice' + (f.stale ? ' stale' : '');
-  el.hidden = false;
+// Listing text comes from agents and their feeds: escape it before it goes into HTML.
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 // Analytics events (Umami). No-op when analytics isn't configured.
 function track(name, data) {
@@ -367,7 +356,7 @@ const NO_PHOTO = 'data:image/svg+xml,' + encodeURIComponent(
   "<text x='300' y='310' text-anchor='middle' font-family='sans-serif' font-size='22' fill='#7d8a84'>No photo available</text></svg>");
 function photoUrl(l) {
   if (!l.image_url) return NO_PHOTO;
-  // Our own photos (agent listings) are site paths; source-site photos go through the proxy.
+  // Uploaded photos are site paths; photos from agents' feeds go through our image proxy.
   return l.image_url.startsWith('/') ? l.image_url : '/api/img?url=' + encodeURIComponent(l.image_url);
 }
 const PHOTO_FALLBACK = 'onerror="this.onerror=null;this.src=NO_PHOTO"';
@@ -459,17 +448,17 @@ function makePopup(listing, index) {
   const href = listing.source_url || '#';
 
   return '<div class="popup-card">' +
-    '<img class="popup-img" src="' + img + '" alt="Property" ' + PHOTO_FALLBACK + '>' +
+    '<img class="popup-img" src="' + esc(img) + '" alt="Property" ' + PHOTO_FALLBACK + '>' +
     '<div class="popup-body">' +
-      '<div class="popup-pref">' + listing.prefecture + '</div>' +
-      '<div class="popup-title">' + title + '</div>' +
+      '<div class="popup-pref">' + esc(listing.prefecture) + '</div>' +
+      '<div class="popup-title">' + esc(title) + '</div>' +
       '<div class="popup-price ' + (isFree ? 'free' : '') + '">' + aud + '</div>' +
       '<div class="popup-jpy">' + jpy + '</div>' +
       '<div class="popup-tags">' +
         (size ? '<span class="popup-tag">' + size + '</span>' : '') +
-        '<span class="popup-tag">' + listing.prefecture + '</span>' +
+        '<span class="popup-tag">' + esc(listing.prefecture) + '</span>' +
       '</div>' +
-      '<a class="popup-btn" href="' + href + '" target="_blank" rel="noopener" data-umami-event="listing-click" data-umami-event-prefecture="' + listing.prefecture + '" data-umami-event-page="map">View listing →</a>' +
+      '<a class="popup-btn" href="' + esc(href) + '" target="_blank" rel="noopener" data-umami-event="listing-click" data-umami-event-prefecture="' + esc(listing.prefecture) + '" data-umami-event-page="map">View listing →</a>' +
     '</div></div>';
 }
 
@@ -493,7 +482,7 @@ function renderList(listings) {
   const count = document.getElementById('sidebar-count');
 
   if (listings.length === 0) {
-    list.innerHTML = '<div class="list-empty"><div style="font-size:2.5rem">🏚</div><h3>No listings found</h3><p>Try adjusting your search or filters.</p></div>';
+    list.innerHTML = '<div class="list-empty"><div style="font-size:2.5rem">🏚</div><h3>No listings found</h3><p>We\'re adding homes from licensed Japanese agents. Try adjusting your search or filters.</p></div>';
     count.innerHTML = '<strong>0</strong> listings';
     return;
   }
@@ -509,12 +498,12 @@ function renderList(listings) {
     const title = (l.title || 'Vacant house — ' + l.prefecture).replace('不明', '').trim();
     const size = l.size_m2 > 0 ? l.size_m2 + ' m²' : '';
     return '<div class="list-item" data-index="' + i + '" onclick="focusListing(' + i + ')">' +
-      '<img class="list-item-img" src="' + img + '" alt="Property" loading="lazy" ' + PHOTO_FALLBACK + '>' +
+      '<img class="list-item-img" src="' + esc(img) + '" alt="Property" loading="lazy" ' + PHOTO_FALLBACK + '>' +
       '<div class="list-item-body">' +
-        '<div class="list-item-pref">' + l.prefecture + '</div>' +
-        '<div class="list-item-title">' + title + '</div>' +
+        '<div class="list-item-pref">' + esc(l.prefecture) + '</div>' +
+        '<div class="list-item-title">' + esc(title) + '</div>' +
         '<div class="list-item-price ' + (isFree ? 'free' : '') + '">' + aud + '</div>' +
-        '<div class="list-item-meta">' + (size ? size + ' · ' : '') + l.prefecture + '</div>' +
+        '<div class="list-item-meta">' + (size ? size + ' · ' : '') + esc(l.prefecture) + '</div>' +
       '</div></div>';
   }).join('');
 }
@@ -560,7 +549,6 @@ async function loadListings(params) {
     const data = await res.json();
     allListings = Array.isArray(data) ? data : (data.listings || []);
     matchedTotal = typeof data.total === 'number' ? data.total : allListings.length;
-    showFreshness(data.freshness);
     const sorted = sortListings(allListings, document.getElementById('sort-sel').value);
     renderList(sorted);
     renderMarkers(sorted);

@@ -1,13 +1,13 @@
 name: AkiyaFind Feeds
 
 # Imports approved agents' listings feeds (feeds.py), then sends saved-search
-# alerts so buyers hear about new feed listings even while the crawler is off.
+# alerts so buyers hear about new feed listings.
 on:
   workflow_dispatch:
   schedule:
     - cron: '20 16 * * *'
 
-# Shared with the crawler so the two never send alerts at the same time.
+# Shared with the purge workflow so the two never touch listings at the same time.
 concurrency:
   group: akiyafind-database
   cancel-in-progress: false

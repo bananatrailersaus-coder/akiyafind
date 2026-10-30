@@ -39,7 +39,7 @@ router = APIRouter()
 MAX_FEED_BYTES = 30 * 1024 * 1024
 MAX_FEED_ITEMS = 2000
 MAX_FEEDS_PER_AGENT = 3
-MIN_SEEN_RATIO = 0.5  # same rule as the crawler: a feed that suddenly shrinks by half is more likely broken than sold out
+MIN_SEEN_RATIO = 0.5  # a feed that suddenly shrinks by half is more likely broken than sold out
 SHRINK_RUNS_TO_ACCEPT = 3  # ...but if it's still that small three imports in a row, believe it
 USER_AGENT = "AkiyaFindBot/1.0 (+https://akiyafind.com/agents)"
 
