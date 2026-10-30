@@ -56,8 +56,6 @@
   .filter-clear { background: transparent; color: var(--mist); border: 1px solid rgba(168,184,176,0.4); cursor: pointer; padding: 8px 14px; border-radius: 4px; font-family: 'DM Sans', sans-serif; font-size: 0.83rem; }
   .filter-clear:hover { color: var(--ink); }
   .results-area { max-width: 1200px; margin: 0 auto; padding: 32px 48px; }
-  .data-notice { font-size: 0.8rem; color: #6b7a73; margin: 0 0 16px; }
-  .data-notice.stale { background: #fff6e0; border: 1px solid #e8c77a; color: #6b4e0e; padding: 10px 14px; border-radius: 6px; }
   .results-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
   .results-count { font-size: 0.85rem; color: var(--mist); }
   .results-count strong { color: var(--ink); font-weight: 600; }
@@ -161,7 +159,6 @@
       <option value="size-desc">Largest first</option>
     </select>
   </div>
-  <div class="data-notice" id="data-notice" hidden></div>
   <div class="results-grid" id="results-grid">
     <div class="loading-state"><div class="spinner"></div><p style="color:var(--mist);font-size:0.9rem">Searching listings…</p></div>
   </div>
@@ -169,17 +166,9 @@
 </div>
 
 <script>
-// Data-freshness notice: the listings are only as current as the last full crawl.
-function showFreshness(f) {
-  const el = document.getElementById('data-notice');
-  if (!el || !f || !f.refreshed_at) return;
-  const d = new Date(f.refreshed_at + 'T00:00:00Z').toLocaleDateString('en-AU',
-    { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
-  el.textContent = f.stale
-    ? 'Listings last refreshed ' + d + '. Some may have sold since, so always check the source listing.'
-    : 'Listings refreshed daily · last updated ' + d + '.';
-  el.className = 'data-notice' + (f.stale ? ' stale' : '');
-  el.hidden = false;
+// Listing text comes from agents and their feeds: escape it before it goes into HTML.
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 // Analytics events (Umami). No-op when analytics isn't configured.
 function track(name, data) {
@@ -194,7 +183,7 @@ const NO_PHOTO = 'data:image/svg+xml,' + encodeURIComponent(
   "<text x='300' y='310' text-anchor='middle' font-family='sans-serif' font-size='22' fill='#7d8a84'>No photo available</text></svg>");
 function photoUrl(l) {
   if (!l.image_url) return NO_PHOTO;
-  // Our own photos (agent listings) are site paths; source-site photos go through the proxy.
+  // Uploaded photos are site paths; photos from agents' feeds go through our image proxy.
   return l.image_url.startsWith('/') ? l.image_url : '/api/img?url=' + encodeURIComponent(l.image_url);
 }
 const PHOTO_FALLBACK = 'onerror="this.onerror=null;this.src=NO_PHOTO"';
@@ -233,21 +222,21 @@ function renderCard(listing, index) {
   const href = listing.source_url || '#';
   const title = (listing.title || 'Vacant house — ' + listing.prefecture).replace('不明', '').trim();
 
-  return `<a class="result-card" href="${href}" target="_blank" rel="noopener" data-umami-event="listing-click" data-umami-event-prefecture="${listing.prefecture}" data-umami-event-page="search">
+  return `<a class="result-card" href="${esc(href)}" target="_blank" rel="noopener" data-umami-event="listing-click" data-umami-event-prefecture="${esc(listing.prefecture)}" data-umami-event-page="search">
     <div class="card-img-wrap">
-      <img src="${img}" alt="Property in ${listing.prefecture}" loading="lazy" ${PHOTO_FALLBACK}>
+      <img src="${esc(img)}" alt="Property in ${esc(listing.prefecture)}" loading="lazy" ${PHOTO_FALLBACK}>
       <span class="card-badge ${isFree ? 'free' : ''}">${isFree ? 'Free Transfer' : 'Akiya'}</span>
     </div>
     <div class="card-body">
-      <div class="card-pref">${listing.prefecture}</div>
-      <div class="card-title">${title}</div>
+      <div class="card-pref">${esc(listing.prefecture)}</div>
+      <div class="card-title">${esc(title)}</div>
       <div class="card-price-aud ${isFree ? 'free-price' : ''}">${aud}</div>
       <div class="card-price-jpy">${jpy}</div>
       <div class="card-meta">
         ${size ? '<span class="meta-tag">' + size + '</span>' : ''}
-        ${city ? '<span class="meta-tag">' + city + '</span>' : ''}
+        ${city ? '<span class="meta-tag">' + esc(city) + '</span>' : ''}
       </div>
-      <div class="card-source">● Source: ${listing.source_name}</div>
+      <div class="card-source">● Listed by ${esc(listing.source_name || 'a licensed agent')}</div>
     </div>
   </a>`;
 }
@@ -270,7 +259,7 @@ function renderPage() {
   const grid = document.getElementById('results-grid');
 
   if (page.length === 0) {
-    grid.innerHTML = '<div class="empty-state"><div style="font-size:3rem">🏚</div><h3>No listings found</h3><p>Try a different search or remove filters.</p></div>';
+    grid.innerHTML = '<div class="empty-state"><div style="font-size:3rem">🏚</div><h3>No listings found</h3><p>We\'re adding homes from licensed Japanese agents. Try a different search, or save this one to get an email when new listings match.</p></div>';
     return;
   }
   grid.innerHTML = page.map((l, i) => renderCard(l, start + i)).join('');
@@ -315,7 +304,6 @@ async function doSearch(params) {
     const res = await fetch(buildApiUrl(params));
     const data = await res.json();
     allListings = Array.isArray(data) ? data : (data.listings || []);
-    showFreshness(data.freshness);
     currentPage = 1;
     const total = allListings.length;
     const matched = typeof data.total === 'number' ? data.total : total;

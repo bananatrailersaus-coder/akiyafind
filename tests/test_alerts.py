@@ -18,6 +18,8 @@ from starlette.testclient import TestClient
 from itsdangerous import TimestampSigner
 import server, alerts
 c = TestClient(server.app)
+# Only agent listings are published (At Home declined permission), so mark the seed row as one.
+cur.execute("UPDATE listings SET agent_listing_id = 900 WHERE source_url = 'https://x/old'"); conn.commit()
 
 def login(email):
     u = server.upsert_user("g-"+email, email, "Tester", "")
@@ -53,10 +55,11 @@ login("a@example.com")
 r = c.get("/api/search", params={"prefecture": "nagano", "max_price": 1000000}); assert len(r.json()["listings"]) == 1
 
 # New listings arrive after the searches were saved
-cur.execute("""INSERT INTO listings (title_en, prefecture, city, price_jpy, size_m2, source_url) VALUES
- ('Farmhouse <b>','Nagano','Ina',0,120.5,'https://x/1'),
- ('Townhouse','Nagano','Ueda',3000000,80,'https://x/2'),
- ('Machiya','Kyoto','Kyoto',900000,60,'https://x/3')""")
+cur.execute("""INSERT INTO listings (title_en, prefecture, city, price_jpy, size_m2, source_url, agent_listing_id) VALUES
+ ('Farmhouse <b>','Nagano','Ina',0,120.5,'https://x/1',1),
+ ('Townhouse','Nagano','Ueda',3000000,80,'https://x/2',2),
+ ('Machiya','Kyoto','Kyoto',900000,60,'https://x/3',3),
+ ('Crawled farm','Nagano','Ina',1000,50,'https://www.akiya-athome.jp/x',NULL)""")
 conn.commit()
 
 sent = []
@@ -70,13 +73,14 @@ for m in sent: print("EMAIL to", m["to"], "|", m["subject"], "|", m["headers"]["
 assert len(sent) == 2
 nagano = [m for m in sent if "Nagano" in m["subject"]][0]
 assert "Farmhouse &lt;b&gt;" in nagano["html"] and "Townhouse" not in nagano["html"] and "Old house" not in nagano["html"]
+assert "Crawled farm" not in nagano["html"], "a crawled At Home row must never be emailed"
 assert "Machiya" in [m for m in sent if "kyoto" in m["subject"]][0]["html"]
 
 # Second run: nothing new -> no emails
 sent.clear(); alerts.run(); assert sent == [], sent
 
 # Failed send keeps watermark -> retried next run
-cur.execute("INSERT INTO listings (title_en, prefecture, city, price_jpy, source_url) VALUES ('Cottage','Nagano','Iida',100000,'https://x/4')"); conn.commit()
+cur.execute("INSERT INTO listings (title_en, prefecture, city, price_jpy, source_url, agent_listing_id) VALUES ('Cottage','Nagano','Iida',100000,'https://x/4',4)"); conn.commit()
 class Bad(R):
     status_code = 500
     def raise_for_status(self): raise RuntimeError("boom")

@@ -17,7 +17,7 @@ conn.commit()
 
 from starlette.testclient import TestClient
 from itsdangerous import TimestampSigner
-import server, agents, alerts, crawler_v3
+import server, agents, alerts
 
 fails = []
 def check(cond, msg):
@@ -97,15 +97,12 @@ pub = anon.get(f"/api/listing/{lid}").json()
 check(pub["agent"]["license_no"] == "長野県知事(3)第1234号" and "review_note" not in pub and "email" not in pub["agent"], "public listing shows licence, hides agent email and review note")
 r = anon.get(f"/agent-photos/{p2}"); check(r.status_code == 200 and r.headers["content-type"] == "image/jpeg" and "public" in r.headers["cache-control"], "approved photos public and cacheable")
 
-# --- crawler must not delist agent listings
-from datetime import datetime, timezone
-delisted, ok = crawler_v3.mark_delisted(conn, "Nagano", datetime.now(timezone.utc), 1)
-cur.execute("SELECT delisted_at IS NULL FROM listings WHERE agent_listing_id=%s", (lid,)); agent_active = cur.fetchone()[0]
-cur.execute("SELECT delisted_at IS NOT NULL FROM listings WHERE source_url LIKE '%%/C1'"); crawled_gone = cur.fetchone()[0]; conn.commit()
-check(agent_active and crawled_gone, "complete crawl delists the unseen crawled listing but never the agent listing")
-
-# --- freshness ignores agent listings
-f = anon.get("/api/listings").json()["freshness"]; check(f["refreshed_at"] == "2026-05-26", f"freshness still based on crawled data ({f})")
+# --- At Home's data is never shown (they declined permission on 29 Oct 2026)
+check(all(l["title"] != "Crawled house" for l in srch(anon)) and anon.get("/api/search").json()["total"] == 1,
+      "crawled At Home row never appears in search; the agent listing does")
+check([l["title"] for l in anon.get("/api/listings").json()["listings"]] == ["Farmhouse with mountain views"], "homepage listings: agent listing only")
+check(anon.get("/api/counts").json()["counts"] == {"Nagano": 1}, "counts include only published agent listings")
+check(anon.get("/api/img", params={"url": "https://img.akiya-athome.jp/?v=abc"}).status_code == 400, "At Home photos no longer proxied")
 
 # --- enquiries
 sent = []

@@ -4,7 +4,6 @@ Replace your existing server.py with this file.
 """
 
 import asyncio, os, re, secrets, hashlib, hmac, html
-from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 import httpx
 import psycopg2
@@ -15,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from authlib.integrations.starlette_client import OAuth
 from starlette.middleware.sessions import SessionMiddleware
 
-from alerts import ensure_alert_schema, listing_filter_sql, ALERT_LIMITS
+from alerts import ensure_alert_schema, listing_filter_sql, ALERT_LIMITS, PUBLISHED_SQL
 from pages import render_page
 from agents import router as agents_router, ensure_agent_schema
 import feeds
@@ -41,9 +40,6 @@ PAYMENTS_ENABLED = bool(STRIPE_SECRET_KEY and STRIPE_SEARCHER_PRICE and STRIPE_W
 
 BASE_URL = os.environ.get("BASE_URL", "https://akiyafind.com")
 
-# Last full crawl before crawl_log existed (manual run #3, 26 May 2026).
-LEGACY_REFRESH = datetime(2026, 5, 26, tzinfo=timezone.utc)
-STALE_AFTER = timedelta(days=3)
 
 stripe.api_key = STRIPE_SECRET_KEY
 
@@ -147,10 +143,10 @@ def get_current_user(request: Request):
 def get_listings():
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""
+    cur.execute(f"""
         SELECT title_en, prefecture, city, price_jpy, size_m2, source_name, source_url,
                is_free, lat, lng, image_url
-        FROM listings WHERE delisted_at IS NULL
+        FROM listings WHERE {PUBLISHED_SQL}
         -- Feature listings with a photo and a known price first; random within each group.
         -- COALESCE: a NULL image_url makes the test NULL, and DESC sorts NULLs first.
         ORDER BY COALESCE(image_url <> '' AND price_jpy IS NOT NULL, FALSE) DESC, RANDOM() LIMIT 20
@@ -334,30 +330,9 @@ async def stripe_webhook(request: Request):
 # ---------------------------------------------------------------------------
 # Existing routes (unchanged)
 # ---------------------------------------------------------------------------
-def data_freshness():
-    """How old the data really is: the oldest "last complete crawl" among
-    prefectures that have listings. One prefecture that keeps failing makes
-    the whole site honestly stale."""
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT MIN(COALESCE(c.last_ok, %s))
-        FROM (SELECT DISTINCT prefecture FROM listings
-              WHERE delisted_at IS NULL AND agent_listing_id IS NULL) p
-        LEFT JOIN (SELECT prefecture, MAX(finished_at) AS last_ok
-                   FROM crawl_log WHERE complete GROUP BY prefecture) c
-          ON c.prefecture = p.prefecture
-    """, (LEGACY_REFRESH,))
-    oldest = cur.fetchone()[0] or LEGACY_REFRESH
-    cur.close()
-    conn.close()
-    return {"refreshed_at": oldest.date().isoformat(),
-            "stale": datetime.now(timezone.utc) - oldest > STALE_AFTER}
-
 @app.get("/api/listings")
 def api_listings():
-    listings = get_listings()
-    return {"listings": listings, "freshness": data_freshness()}
+    return {"listings": get_listings()}
 
 @app.get("/api/search")
 def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price: int = 0):
@@ -386,10 +361,10 @@ def api_search(q: str = "", prefecture: str = "", min_price: int = 0, max_price:
             "is_free": row[7], "lat": row[8], "lng": row[9],
             "image_url": row[10] or "",
         })
-    return {"listings": listings, "total": total, "freshness": data_freshness()}
+    return {"listings": listings, "total": total}
 
 # ---------------------------------------------------------------------------
-# Saved-search email alerts (sent daily by alerts.py after the crawl)
+# Saved-search email alerts (sent daily by alerts.py after the feed import)
 # ---------------------------------------------------------------------------
 def _require_db_user(request: Request):
     user = get_current_user(request)
@@ -498,7 +473,7 @@ def unsubscribe(token: str = ""):
 def api_counts():
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT prefecture, COUNT(*) FROM listings WHERE delisted_at IS NULL GROUP BY prefecture")
+    cur.execute(f"SELECT prefecture, COUNT(*) FROM listings WHERE {PUBLISHED_SQL} GROUP BY prefecture")
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -531,16 +506,9 @@ def pricing_page():
         return render_page("pricing.html")
     except FileNotFoundError:
         return render_page("index.html")
-# Only proxy listing photos from the source site and from approved agent feeds, never arbitrary URLs.
-IMG_PROXY_HOSTS = ("akiya-athome.jp", "athome.jp")
+# Only proxy photos from approved agent feeds, never arbitrary URLs. (At Home's
+# image hosts were removed on 29 Oct 2026 at their request.)
 IMG_MAX_BYTES = 15 * 1024 * 1024
-
-def _is_allowed_img_url(url: str) -> bool:
-    parsed = urlparse(url)
-    host = (parsed.hostname or "").lower()
-    return parsed.scheme in ("http", "https") and (
-        any(host == h or host.endswith("." + h) for h in IMG_PROXY_HOSTS)
-    )
 
 async def _is_feed_img_url(url: str) -> bool:
     """A photo host listed in an approved agent feed. Agents control these, so the host must also
@@ -552,25 +520,20 @@ async def _is_feed_img_url(url: str) -> bool:
     return (host in await asyncio.to_thread(feeds.feed_photo_hosts)
             and await asyncio.to_thread(feeds.host_is_public, host))
 
-async def _img_url_ok(url: str) -> bool:
-    return _is_allowed_img_url(url) or await _is_feed_img_url(url)
-
 @app.get("/api/img")
 async def image_proxy(url: str, request: Request):
-    if not await _img_url_ok(url):
+    if not await _is_feed_img_url(url):
         return Response(content=b'', status_code=400)
     try:
         async with httpx.AsyncClient() as client:
             # Follow redirects by hand so every hop is re-checked against the allowlist.
             for _ in range(4):
-                headers = ({"Referer": "https://www.akiya-athome.jp/", "User-Agent": "Mozilla/5.0"}
-                           if _is_allowed_img_url(url) else
-                           {"User-Agent": "Mozilla/5.0 (compatible; AkiyaFindBot/1.0; +https://akiyafind.com/agents)"})
-                r = await client.get(url, headers=headers, follow_redirects=False, timeout=10)
+                r = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; AkiyaFindBot/1.0; +https://akiyafind.com/agents)"},
+                                     follow_redirects=False, timeout=10)
                 if not r.is_redirect:
                     break
                 url = str(r.url.join(r.headers.get("location", "")))
-                if not await _img_url_ok(url):
+                if not await _is_feed_img_url(url):
                     return Response(content=b'', status_code=404)
             else:
                 return Response(content=b'', status_code=404)

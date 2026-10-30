@@ -1,15 +1,15 @@
 """
-schema.py — AkiyaFind listings columns shared by the crawler, server and alerts.
+schema.py — AkiyaFind listings columns shared by the server, alerts and feed import.
 
 Run from each entry point because any of them may hit the database first
 after a deploy. Every statement is idempotent.
 """
 
-# column -> type. created_at: when the crawler first saw a listing (never
-# overwritten) — "new" for alerts. last_seen_at: last crawl that found it on the
-# source site. delisted_at: set when a complete crawl of its prefecture no
-# longer finds it. agent_listing_id: set for listings agents submitted directly
-# (agents.py); the crawler must never delist those.
+# column -> type. created_at: when a listing was first published (never
+# overwritten) — "new" for alerts. last_seen_at: last time it was published or
+# re-imported. delisted_at: set when it's taken down. agent_listing_id: the
+# agent listing (agents.py / feeds.py) it mirrors. Only rows with an
+# agent_listing_id are ever shown (alerts.PUBLISHED_SQL).
 LISTING_COLUMNS = {
     "created_at":       "TIMESTAMPTZ DEFAULT NOW()",
     "last_seen_at":     "TIMESTAMPTZ DEFAULT NOW()",
@@ -30,14 +30,3 @@ def ensure_listing_columns(cur):
         cur.execute("SET LOCAL lock_timeout = '10s'")
         for col in missing:
             cur.execute(f"ALTER TABLE listings ADD COLUMN IF NOT EXISTS {col} {LISTING_COLUMNS[col]}")
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS crawl_log (
-            id          SERIAL PRIMARY KEY,
-            prefecture  TEXT NOT NULL,
-            started_at  TIMESTAMPTZ NOT NULL,
-            finished_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            complete    BOOLEAN NOT NULL,
-            seen        INTEGER NOT NULL,
-            delisted    INTEGER NOT NULL DEFAULT 0
-        )
-    """)
